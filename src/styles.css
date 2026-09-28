@@ -732,9 +732,10 @@ body::after {
 .load-road i:nth-child(2){left:38%;animation-delay:-.2s}.load-road i:nth-child(3){left:66%;animation-delay:-.4s}.load-road i:nth-child(4){left:90%;animation-delay:-.6s}
 @keyframes roadDash { from { transform: translateX(220px) scaleX(.2); opacity: 0; } 50% { opacity: 1; } to { transform: translateX(-460px) scaleX(1.6); opacity: 0; } }
 .loading-copy { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: -18px; }
-.loading-progress { width: min(360px,70vw); height: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
-.loading-progress i { display: block; height: 100%; width: 45%; background: linear-gradient(90deg,transparent,var(--neon-cyan),#fff); box-shadow: 0 0 14px var(--neon-cyan); animation: loadProgress 1.45s ease-in-out infinite; }
-@keyframes loadProgress { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
+.loading-heading { width:min(360px,70vw); display:flex; align-items:baseline; justify-content:center; gap:14px; }
+.loading-percent { min-width:46px; color:rgba(223,250,255,.72); font:600 11px/1 var(--display); letter-spacing:.12em; text-align:right; text-shadow:0 0 12px rgba(0,229,255,.35); }
+.loading-progress { width: min(360px,70vw); height: 3px; background: rgba(255,255,255,.08); overflow: hidden; border-radius:999px; box-shadow:inset 0 0 8px rgba(0,0,0,.5); }
+.loading-progress i { display: block; height: 100%; width: 0; border-radius:inherit; background: linear-gradient(90deg,var(--neon-magenta),var(--neon-cyan),#fff); background-size:200% 100%; box-shadow: 0 0 14px var(--neon-cyan); will-change:width; }
 .loading-hint { color: rgba(189,216,234,.42); font: 600 8px/1 var(--body); letter-spacing: .24em; }
 .loading-text,.loading-hint { transition:opacity .2s ease,transform .2s ease; }
 .loading-screen[data-phase="2"] .loading-text { color:#fff; text-shadow:0 0 20px var(--neon-magenta); }
@@ -743,7 +744,7 @@ body::after {
 .load-telemetry span { grid-column:1/-1; font:600 7px/1 var(--body); letter-spacing:.3em; }.load-telemetry b { font:700 28px/.8 var(--display); }.load-telemetry em { align-self:end; font:600 7px/1 var(--body); font-style:normal; }
 @keyframes telemetryIn { 0%,23% { opacity:0; transform:translateX(18px); } 34%,69% { opacity:1; transform:none; } 80%,100% { opacity:0; transform:translateX(-12px); } }
 .spinner { display: none; }
-@media (prefers-reduced-motion: reduce) { .load-stage *,.loading-progress i,.loading-screen::after { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .load-stage *,.loading-screen::after { animation: none !important; } }
 
 /* In-race touch cockpit — original vector/CSS controls, no external game assets. */
 .touch-controls { position:fixed; inset:0; z-index:46; display:none; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; font-family:var(--body); }

@@ -314,7 +314,7 @@ function startRace(settings) {
     uiRoot.classList.remove('no-world');
     setState('intro');
     showIntroCard();
-  }, 40);
+  }, 2550);
 }
 
 let introCard = null;
@@ -549,7 +549,10 @@ async function boot() {
   document.body.dataset.state = 'boot';
   menu.showLoading('LOADING');
   requestAnimationFrame(frame);
-  await loadModules();
+  await Promise.all([
+    loadModules(),
+    new Promise((resolve) => setTimeout(resolve, 2550)),
+  ]);
   if (mods.input && mods.input.InputController) input = safe('input.ctor', () => new mods.input.InputController());
   if (mods.models && mods.models.createCharacterPortrait) {
     const fn = (c) => mods.models.createCharacterPortrait(c);

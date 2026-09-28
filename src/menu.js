@@ -41,6 +41,7 @@ export class Menu {
     this.optIndex = 0;
     this.pauseIndex = 0;
     this._loadingTimer = null;
+    this._loadingTween = null;
     this._loadingPhase = 0;
     this._titleTimeline = null;
     this._backgroundTween = null;
@@ -218,7 +219,11 @@ export class Menu {
         <div class="load-road"><i></i><i></i><i></i><i></i></div>
         <div class="load-telemetry"><span>VELOCITY</span><b>287</b><em>KM/H</em></div>
       </div>
-      <div class="loading-copy"><div class="loading-text">SYNCING RIFT</div><div class="loading-progress"><i></i></div><div class="loading-hint">CALIBRATING VEHICLE · MAPPING ROUTE · LINKING PILOT</div></div>`);
+      <div class="loading-copy">
+        <div class="loading-heading"><div class="loading-text">SYNCING RIFT</div><span class="loading-percent">0%</span></div>
+        <div class="loading-progress" role="progressbar" aria-label="Loading race" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+        <div class="loading-hint">CALIBRATING VEHICLE · MAPPING ROUTE · LINKING PILOT</div>
+      </div>`);
   }
 
   // ------------------------------------------------------------------ screens
@@ -302,7 +307,37 @@ export class Menu {
     this.screen = 'loading';
     this._showOnly(this.loadingEl);
     this._startLoadingSequence(text);
+    this._startLoadingProgress();
     this._animateLoadingKart();
+  }
+
+  _startLoadingProgress() {
+    if (this._loadingTween) this._loadingTween.kill();
+    const display = this.loadingEl.querySelector('.loading-percent');
+    const progress = this.loadingEl.querySelector('.loading-progress');
+    const bar = progress.querySelector('i');
+    const counter = { val: 0 };
+    display.textContent = '0%';
+    bar.style.width = '0%';
+    progress.setAttribute('aria-valuenow', '0');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      display.textContent = '100%';
+      bar.style.width = '100%';
+      progress.setAttribute('aria-valuenow', '100');
+      return;
+    }
+    this._loadingTween = gsap.to(counter, {
+      val: 100,
+      duration: 2.5,
+      ease: 'power2.inOut',
+      onUpdate: () => {
+        const value = Math.round(counter.val);
+        display.textContent = `${value}%`;
+        bar.style.width = `${counter.val}%`;
+        progress.setAttribute('aria-valuenow', String(value));
+      },
+      onComplete: () => { this._loadingTween = null; },
+    });
   }
 
   _animateLoadingKart() {
@@ -341,6 +376,8 @@ export class Menu {
   _stopLoadingSequence() {
     if (this._loadingTimer != null) window.clearInterval(this._loadingTimer);
     this._loadingTimer = null;
+    if (this._loadingTween) this._loadingTween.kill();
+    this._loadingTween = null;
   }
   get settings() {
     return { characterIndex: this.charIndex, difficulty: DIFFS[this.diffIndex], laps: LAPS[this.lapsIndex] };
