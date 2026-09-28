@@ -5,11 +5,14 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bus } from './events.js';
-import { CHARACTERS, RACE, PHYSICS } from './config.js';
+import { CHARACTERS, VEHICLES, RACE, PHYSICS } from './config.js';
 import { RaceManager } from './race.js';
 import { HUD } from './hud.js';
 import { Menu } from './menu.js';
 import { AudioEngine } from './audio.js';
+import { TutorialCoach } from './tutorial.js';
+import { RaceRandom } from './random.js';
+import { RiftEventManager } from './rift-events.js';
 
 // ---------------------------------------------------------------------------------------------
 // Error isolation: one failing subsystem must never freeze the loop. Log once per error type.
@@ -53,6 +56,14 @@ composer.addPass(renderPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.45, 0.88);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+let selectedPixelCap = 2;
+let adaptivePixelCap = 2;
+function applyPixelRatio() {
+  const ratio = Math.min(window.devicePixelRatio || 1, selectedPixelCap, adaptivePixelCap);
+  renderer.setPixelRatio(ratio);
+  composer.setPixelRatio(ratio);
+}
 
 function onResize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -99,14 +110,14 @@ function makeKartModel(character) {
 }
 
 class FallbackAI {
-  constructor(kart, track) { this.kart = kart; this.track = track; }
+  constructor(kart, track, random = Math.random) { this.kart = kart; this.track = track; this.random = random; }
   update() {
     const k = this.kart, tr = this.track;
     const p = tr.getPointAt(((k.trackT || 0) + 25 / (tr.length || 2000)) % 1);
     const dx = p.x - k.position.x, dz = p.z - k.position.z;
     const want = Math.atan2(dx, dz);
     let d = want - k.heading; d = Math.atan2(Math.sin(d), Math.cos(d));
-    k.input = { throttle: 1, brake: 0, steer: THREE.MathUtils.clamp(-d * 2, -1, 1), drift: false, item: !!k.item && Math.random() < 0.01, lookBack: false };
+    k.input = { throttle: 1, brake: 0, steer: THREE.MathUtils.clamp(-d * 2, -1, 1), drift: false, item: !!k.item && this.random() < 0.01, lookBack: false };
   }
 }
 
@@ -132,14 +143,32 @@ class FallbackCamera {
 // ---------------------------------------------------------------------------------------------
 const audio = new AudioEngine();
 const hud = new HUD(uiRoot);
+const tutorial = new TutorialCoach(uiRoot);
 const menu = new Menu(uiRoot, {
   onStart: (settings) => startRace(settings),
   onResume: () => resume(),
   onRestart: () => { menu.hideAll(); startRace(lastSettings); },
   onQuit: () => goToTitle(),
+  onSettings: (settings) => applySettings(settings),
   onScreen: (s) => { setState(s === 'select' ? 'select' : 'title'); },
 });
 let input = null;
+
+function applySettings(settings = menu.userSettings) {
+  const quality = settings.graphics || 'high';
+  const pixelCap = quality === 'low' ? 1 : quality === 'medium' ? 1.5 : 2;
+  selectedPixelCap = pixelCap;
+  adaptivePixelCap = pixelCap;
+  applyPixelRatio();
+  renderer.shadowMap.enabled = quality !== 'low';
+  bloom.strength = quality === 'low' ? 0.12 : quality === 'medium' ? 0.24 : 0.32;
+  audio.setVolume((Number(settings.volume) || 0) / 100);
+  input?.setSteeringSensitivity?.((Number(settings.steerSensitivity) || 100) / 100);
+  if (world?.chase) {
+    world.chase.shakeEnabled = settings.cameraShake !== false;
+    if (['chase', 'hood', 'wide'].includes(settings.cameraView)) world.chase.viewMode = settings.cameraView;
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 // Game state
@@ -147,10 +176,11 @@ let input = null;
 let state = 'boot';
 let prevState = null;
 let world = null;
-let lastSettings = { characterIndex: 0, difficulty: 'normal', laps: RACE.laps };
+let lastSettings = { characterIndex: 0, vehicleIndex: 0, difficulty: 'normal', laps: RACE.laps };
 let introTimer = 0;
 let resultsShown = false;
 let time = 0;
+applySettings(menu.userSettings);
 const clock = new THREE.Clock();
 const NEUTRAL = Object.freeze({ throttle: 0, brake: 0, steer: 0, drift: false, item: false, lookBack: false });
 
@@ -166,18 +196,18 @@ const RACE_STATES = new Set(['intro', 'countdown', 'racing', 'finished']);
 // ---------------------------------------------------------------------------------------------
 // World lifecycle
 // ---------------------------------------------------------------------------------------------
-function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function shuffle(a, rng) { for (let i = a.length - 1; i > 0; i--) { const j = rng.int(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
-function buildWorld({ mode, characterIndex = 0, difficulty = 'normal', laps = RACE.laps }) {
+function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = 'normal', laps = RACE.laps, seed = 'attract' }) {
   if (!mods.track || !mods.track.createTrack) throw new Error('track.js unavailable');
   if (!mods.kart || !mods.kart.Kart) throw new Error('kart.js unavailable');
-  const w = { mode, difficulty, laps, karts: [], ais: [], playerAI: null, player: null, scene: new THREE.Scene() };
+  const w = { mode, difficulty, laps, seed, rng: new RaceRandom(seed), karts: [], ais: [], playerAI: null, player: null, scene: new THREE.Scene() };
   w.track = mods.track.createTrack(w.scene, renderer);
 
   // roster: attract mode = every character in order (kart index == character index)
   let chars;
   if (mode === 'race') {
-    const others = shuffle(CHARACTERS.filter((_, i) => i !== characterIndex));
+    const others = shuffle(CHARACTERS.filter((_, i) => i !== characterIndex), w.rng.fork('roster'));
     chars = [CHARACTERS[characterIndex], ...others];
   } else chars = CHARACTERS.slice();
 
@@ -185,36 +215,44 @@ function buildWorld({ mode, characterIndex = 0, difficulty = 'normal', laps = RA
   for (let i = 0; i < RACE.racers; i++) {
     const character = chars[i % chars.length];
     const isPlayer = mode === 'race' && i === 0;
+    const vehicle = VEHICLES[isPlayer ? vehicleIndex % VEHICLES.length : i % VEHICLES.length];
     const model = makeKartModel(character);
-    const kart = new Kart({ scene: w.scene, track: w.track, character, isPlayer, index: i, model });
+    const kart = new Kart({ scene: w.scene, track: w.track, character, vehicle, isPlayer, index: i, model });
     w.karts.push(kart);
     if (isPlayer) w.player = kart;
   }
 
   // grid order: player mid-pack (slot 4 or 5), others shuffled
   const gridOrder = new Array(RACE.racers);
-  const rest = shuffle(w.karts.filter((k) => k !== w.player));
+  const gridRng = w.rng.fork('grid');
+  const rest = shuffle(w.karts.filter((k) => k !== w.player), gridRng);
   if (w.player) {
-    const slot = 4 + ((Math.random() * 2) | 0);
+    const slot = 4 + gridRng.int(2);
     gridOrder[slot] = w.player;
   }
   for (let i = 0; i < gridOrder.length; i++) if (!gridOrder[i]) gridOrder[i] = rest.shift();
 
-  w.race = new RaceManager({ track: w.track, karts: w.karts, player: w.player, laps, silent: mode !== 'race' });
+  w.race = new RaceManager({ track: w.track, karts: w.karts, player: w.player, laps, silent: mode !== 'race', random: () => w.rng.next() });
   w.race.placeOnGrid(gridOrder);
 
   const AIClass = (mods.ai && mods.ai.AIDriver) || null;
   for (const k of w.karts) {
     if (k === w.player) continue;
     let ai = null;
-    if (AIClass) ai = safe('ai.ctor', () => new AIClass(k, w.track, { difficulty: mode === 'race' ? difficulty : 'hard' }));
-    w.ais.push(ai || new FallbackAI(k, w.track));
+    const aiRng = w.rng.fork(`ai-${k.index}`);
+    if (AIClass) ai = safe('ai.ctor', () => new AIClass(k, w.track, { difficulty: mode === 'race' ? difficulty : 'hard', random: () => aiRng.next() }));
+    w.ais.push(ai || new FallbackAI(k, w.track, () => aiRng.next()));
   }
 
-  if (mods.items && mods.items.ItemSystem) w.items = safe('items.ctor', () => new mods.items.ItemSystem({ scene: w.scene, track: w.track, karts: w.karts }));
+  const itemRng = w.rng.fork('items');
+  if (mods.items && mods.items.ItemSystem) w.items = safe('items.ctor', () => new mods.items.ItemSystem({ scene: w.scene, track: w.track, karts: w.karts, random: () => itemRng.next() }));
+  const eventRng = w.rng.fork('rift-events');
+  w.riftEvents = new RiftEventManager({ scene: w.scene, track: w.track, karts: w.karts, random: () => eventRng.next(), enabled: mode === 'race' });
   if (mods.effects && mods.effects.Effects) w.effects = safe('effects.ctor', () => new mods.effects.Effects(w.scene, camera));
   w.chase = (mods.camera && mods.camera.ChaseCamera && safe('camera.ctor', () => new mods.camera.ChaseCamera(camera))) || new FallbackCamera(camera);
-  w.ctx = { karts: w.karts, player: w.player || w.karts[0], itemSystem: w.items || null, time: 0 };
+  w.chase.shakeEnabled = menu.userSettings.cameraShake !== false;
+  if (['chase', 'hood', 'wide'].includes(menu.userSettings.cameraView)) w.chase.viewMode = menu.userSettings.cameraView;
+  w.ctx = { karts: w.karts, player: w.player || w.karts[0], itemSystem: w.items || null, riftEvents: w.riftEvents || null, time: 0 };
   if (w.player) safe('camera.snap', () => w.chase.snap(w.player));
 
   renderPass.scene = w.scene;
@@ -228,6 +266,7 @@ function disposeWorld() {
   if (!w) return;
   safe('dispose.items', () => w.items && w.items.dispose && w.items.dispose());
   safe('dispose.effects', () => w.effects && w.effects.dispose && w.effects.dispose());
+  safe('dispose.riftEvents', () => w.riftEvents && w.riftEvents.dispose());
   for (const k of w.karts) safe('dispose.kart', () => k.dispose && k.dispose());
   safe('dispose.track', () => w.track && w.track.dispose && w.track.dispose());
   safe('dispose.race', () => w.race && w.race.dispose());
@@ -274,6 +313,7 @@ function buildAttract() {
 }
 
 function goToTitle() {
+  tutorial.hide();
   hud.hide(); hud.hideResults();
   audio.setPaused(false);
   audio.setGameplayActive(false);
@@ -288,7 +328,9 @@ function goToTitle() {
 }
 
 function startRace(settings) {
-  lastSettings = { ...lastSettings, ...settings };
+  const requested = { ...settings };
+  if (requested.seed === undefined || requested.seed === null) requested.seed = `${Date.now()}-${Math.floor(performance.now())}`;
+  lastSettings = { ...lastSettings, ...requested };
   hud.hide(); hud.hideResults();
   menu.showLoading('GET READY!');
   audio.setPaused(false);
@@ -309,12 +351,13 @@ function startRace(settings) {
     seenErrors.clear();
     hud.reset({ player: world.player, track: world.track, laps: lastSettings.laps });
     hud.show();
+    tutorial.start();
     menu.hideAll();
     audio.setGameplayActive(true);
     uiRoot.classList.remove('no-world');
     setState('intro');
     showIntroCard();
-  }, 2550);
+  }, 3900);
 }
 
 let introCard = null;
@@ -323,7 +366,8 @@ function showIntroCard() {
   uiRoot.appendChild(introCard);
   const name = (world && world.track && world.track.name) || 'Grand Circuit';
   const d = { easy: 'NOVA', normal: 'RIFT', hard: 'APEX' }[lastSettings.difficulty] || '';
-  introCard.innerHTML = `<div class="ic-sub">${d} · ${lastSettings.laps} LAP${lastSettings.laps > 1 ? 'S' : ''}</div><div class="ic-name">${name}</div><div class="ic-skip">ENTER · SKIP</div>`;
+  const vehicle = world?.player?.vehicle?.name || 'Nova GT';
+  introCard.innerHTML = `<div class="ic-sub">${d} · ${vehicle.toUpperCase()} · ${lastSettings.laps} LAP${lastSettings.laps > 1 ? 'S' : ''}</div><div class="ic-name">${name}</div><div class="ic-skip">ENTER · SKIP</div>`;
   introCard.classList.remove('show'); void introCard.offsetWidth; introCard.classList.add('show');
 }
 function hideIntroCard() { if (introCard) introCard.classList.remove('show'); }
@@ -384,6 +428,7 @@ bus.on('race:end', (d) => {
 // Keyboard (global)
 // ---------------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
+  if (menu.screen === 'settings' && (e.code === 'Escape' || e.code === 'Backspace')) return;
   if (e.code === 'KeyM' && !e.repeat) {
     const muted = audio.toggleMute();
     hud.toast(muted ? 'SOUND OFF' : 'SOUND ON');
@@ -458,6 +503,40 @@ function updateAttractCamera(dt) {
 // ---------------------------------------------------------------------------------------------
 let playerInput = null;
 const debug = { autopilot: false };
+// Gameplay always advances in equal slices. This keeps steering, acceleration, collision response
+// and AI decisions consistent on 30 Hz phones, 60 Hz laptops and high-refresh gaming displays.
+const SIM_STEP = 1 / 60;
+const MAX_SIM_STEPS = 6;
+let simAccumulator = 0;
+const performanceGuard = {
+  fps: 60, lowFor: 0, stableFor: 0, noticeCooldown: 0,
+  update(frameDt, active) {
+    if (!active || frameDt <= 0 || document.hidden) {
+      this.lowFor = 0; this.stableFor = 0;
+      return;
+    }
+    const sampleFps = 1 / Math.min(frameDt, 0.25);
+    this.fps += (sampleFps - this.fps) * (1 - Math.exp(-frameDt * 2));
+    this.noticeCooldown = Math.max(0, this.noticeCooldown - frameDt);
+    if (this.fps < 44) { this.lowFor += frameDt; this.stableFor = 0; }
+    else if (this.fps > 57) { this.stableFor += frameDt; this.lowFor = 0; }
+    else { this.lowFor = Math.max(0, this.lowFor - frameDt); this.stableFor = Math.max(0, this.stableFor - frameDt); }
+
+    if (this.lowFor > 3 && adaptivePixelCap > 1) {
+      adaptivePixelCap = adaptivePixelCap > 1.5 ? 1.5 : 1;
+      applyPixelRatio();
+      bloom.strength = Math.min(bloom.strength, adaptivePixelCap === 1 ? 0.12 : 0.22);
+      this.lowFor = 0; this.stableFor = 0;
+      if (this.noticeCooldown <= 0) { hud.toast('PERFORMANCE MODE'); this.noticeCooldown = 8; }
+    } else if (this.stableFor > 12 && adaptivePixelCap < selectedPixelCap) {
+      adaptivePixelCap = Math.min(selectedPixelCap, adaptivePixelCap === 1 ? 1.5 : 2);
+      applyPixelRatio();
+      const quality = menu.userSettings.graphics || 'high';
+      bloom.strength = quality === 'low' ? 0.12 : quality === 'medium' ? 0.24 : 0.32;
+      this.lowFor = 0; this.stableFor = 0;
+    }
+  },
+};
 function simulate(w, dt) {
   time += dt;
   w.ctx.time = time;
@@ -479,7 +558,8 @@ function simulate(w, dt) {
     playerInput = raw || NEUTRAL;
     if (debug.autopilot && !w.playerAI && !player.controlsLocked) {
       const AIClass = mods.ai && mods.ai.AIDriver;
-      w.playerAI = (AIClass && safe('ai.player', () => new AIClass(player, w.track, { difficulty: 'hard' }))) || new FallbackAI(player, w.track);
+      const debugRng = w.rng.fork('player-autopilot');
+      w.playerAI = (AIClass && safe('ai.player', () => new AIClass(player, w.track, { difficulty: 'hard', random: () => debugRng.next() }))) || new FallbackAI(player, w.track, () => debugRng.next());
     }
     if ((player.finished || debug.autopilot) && w.playerAI) {
       safe('ai.player', () => w.playerAI.update(dt, w.ctx));
@@ -500,6 +580,7 @@ function simulate(w, dt) {
   if (mods.kart && mods.kart.resolveKartCollisions) safe('resolveKartCollisions', () => mods.kart.resolveKartCollisions(w.karts));
   if (w.items) safe('items.update', () => w.items.update(dt, time));
   safe('race.update', () => w.race.update(dt));
+  safe('riftEvents.update', () => w.riftEvents?.update(dt, w.race.raceTime, w.race.phase));
   if (w.effects) safe('effects.update', () => w.effects.update(dt, w.karts));
   safe('track.update', () => w.track.update && w.track.update(dt, time));
   // keep the sun's shadow frustum centred on whatever the camera is following
@@ -517,11 +598,25 @@ function frame() {
   const rawDt = clock.getDelta();
   const dt = Math.min(rawDt, 1 / 30);
   safe('menu.update', () => menu.update(rawDt, resultsShown ? 'results' : state));
+  performanceGuard.update(Math.min(rawDt, 0.25), state === 'racing');
 
   const w = world;
   if (w) {
     const running = state !== 'paused' && state !== 'loading' && state !== 'boot';
-    if (running) simulate(w, dt);
+    if (running) {
+      // Cap accumulated time so returning from a suspended/background tab cannot create a
+      // multi-second physics catch-up spiral. Any remainder is retained for the next frame.
+      simAccumulator = Math.min(simAccumulator + Math.min(rawDt, 0.1), SIM_STEP * MAX_SIM_STEPS);
+      let steps = 0;
+      while (simAccumulator >= SIM_STEP && steps < MAX_SIM_STEPS) {
+        simulate(w, SIM_STEP);
+        simAccumulator -= SIM_STEP;
+        steps++;
+      }
+    } else {
+      // Pausing must freeze time completely rather than replaying the paused duration on resume.
+      simAccumulator = 0;
+    }
 
     if (w.mode === 'race' && w.player) {
       if (state !== 'paused') {
@@ -530,11 +625,13 @@ function frame() {
         safe('camera.update', () => w.chase.update(dt, w.player, { lookBack, mode }));
       }
       safe('hud.update', () => hud.update(dt, { player: w.player, karts: w.karts, race: w.race, itemSystem: w.items, track: w.track, time }));
+      safe('tutorial.update', () => tutorial.update(dt, { state, input: playerInput, player: w.player }));
     } else {
       updateAttractCamera(dt);
     }
     safe('audio.update', () => audio.update(dt, { player: w.player, karts: w.karts, camera }));
   } else {
+    simAccumulator = 0;
     updateAttractCamera(dt);
     safe('audio.update', () => audio.update(dt, { camera }));
   }
@@ -551,9 +648,10 @@ async function boot() {
   requestAnimationFrame(frame);
   await Promise.all([
     loadModules(),
-    new Promise((resolve) => setTimeout(resolve, 2550)),
+    new Promise((resolve) => setTimeout(resolve, 3900)),
   ]);
   if (mods.input && mods.input.InputController) input = safe('input.ctor', () => new mods.input.InputController());
+  applySettings(menu.userSettings);
   if (mods.models && mods.models.createCharacterPortrait) {
     const fn = (c) => mods.models.createCharacterPortrait(c);
     safe('portraits', () => menu.setPortraitProvider(fn));

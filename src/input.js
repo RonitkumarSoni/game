@@ -2,6 +2,7 @@
 // getInput() returns the kart.input shape; `item` is edge-triggered (true for one frame per press).
 // consumePressed(action) returns true exactly once per press (keyboard or gamepad).
 import { KEYS } from './config.js';
+import { bus } from './events.js';
 
 // Extra UI actions (menus may use these); gameplay actions come from KEYS.
 const EXTRA_KEYS = {
@@ -59,11 +60,21 @@ export class InputController {
     this.gamepadConnected = false;
     this.lastDevice = 'keyboard';
     this.steer = 0;
+    this.steeringSensitivity = 1;
     this.touch = { throttle: 0, brake: 0, steer: 0, drift: false, item: false, lookBack: false };
     this.touchMode = 'buttons';
     this._wheelTurn = 0;
     this._wheelLastAngle = 0;
     this._touchCleanups = [];
+    this._touchHolds = new Map();
+    this._touchHoldOrder = 0;
+    this._touchSteerTapValue = 0;
+    this._touchSteerTapUntil = 0;
+    this.tiltEnabled = false;
+    this._tiltNeutral = null;
+    this._tiltTarget = 0;
+    this._tiltSteer = 0;
+    this._onOrientation = (e) => this._updateTilt(e);
     this._lastTime = now();
     this._lastPoll = -1;
     this._state = { throttle: 0, brake: 0, steer: 0, drift: false, item: false, lookBack: false };
@@ -117,11 +128,12 @@ export class InputController {
         <button class="touch-btn view-cycle" data-press="cameraView" aria-label="Switch to front camera view"><span class="touch-icon camera-icon"><svg viewBox="0 0 32 24" aria-hidden="true"><path d="M4 5h6l2-3h8l2 3h6v17H4z"/><circle cx="16" cy="14" r="5"/></svg></span><small>FRONT</small></button>
         <button class="touch-btn rear-view" data-hold="lookBack" aria-label="Hold rear view"><span class="touch-icon">↶</span><small>REAR</small></button>
         <button class="touch-btn steer-mode" data-toggle="steer" aria-label="Change steering control"><span class="touch-icon">◉</span><small>WHEEL</small></button>
+        <button class="touch-btn tilt-mode" data-toggle="tilt" aria-label="Enable tilt steering"><span class="touch-icon">↔</span><small>TILT</small></button>
       </div>
       <div class="touch-steering buttons-mode">
         <button class="touch-btn steer-key left" data-steer="-1" aria-label="Steer left"><span>‹</span></button>
         <button class="touch-btn steer-key right" data-steer="1" aria-label="Steer right"><span>›</span></button>
-        <div class="steering-wheel" role="slider" aria-label="Steering wheel" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0"><i></i><i></i><i></i><b>NR</b></div>
+        <div class="steering-wheel" role="slider" aria-label="Steering wheel" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0"><i></i><i></i><i></i><button class="wheel-horn" type="button" aria-label="Sound horn">NR</button></div>
       </div>
       <div class="touch-actions">
         <button class="touch-btn ability" data-press="item" aria-label="Use ability"><span class="touch-icon">⚡</span><small>ABILITY</small></button>
@@ -136,12 +148,41 @@ export class InputController {
       node.addEventListener(type, fn, opts);
       this._touchCleanups.push(() => node.removeEventListener(type, fn, opts));
     };
+    const syncHoldAction = (action) => {
+      const active = [...this._touchHolds.values()].filter((hold) => hold.action === action);
+      if (action === 'steer') {
+        active.sort((a, b) => a.order - b.order);
+        this.touch.steer = active.length ? active[active.length - 1].value : 0;
+      } else {
+        this.touch[action] = active.length > 0;
+      }
+    };
     const bindHold = (button, action, value = true) => {
       const down = (e) => {
-        e.preventDefault(); button.setPointerCapture?.(e.pointerId); button.classList.add('pressed');
-        this.lastDevice = 'touch'; this.touch[action] = value;
+        e.preventDefault(); e.stopPropagation();
+        button.setPointerCapture?.(e.pointerId);
+        this._touchHolds.set(e.pointerId, { action, value, button, order: ++this._touchHoldOrder });
+        button.classList.add('pressed');
+        this.lastDevice = 'touch';
+        if (action === 'steer') {
+          this._touchSteerTapValue = value;
+          this._touchSteerTapUntil = now() + 320;
+        }
+        syncHoldAction(action);
       };
-      const up = (e) => { e.preventDefault(); button.classList.remove('pressed'); this.touch[action] = action === 'steer' ? 0 : false; };
+      const up = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const hold = this._touchHolds.get(e.pointerId);
+        if (!hold) return;
+        this._touchHolds.delete(e.pointerId);
+        const buttonStillHeld = [...this._touchHolds.values()].some((entry) => entry.button === button);
+        button.classList.toggle('pressed', buttonStillHeld);
+        if (hold.action === 'steer') {
+          this._touchSteerTapValue = hold.value;
+          this._touchSteerTapUntil = now() + 320;
+        }
+        syncHoldAction(hold.action);
+      };
       listen(button, 'pointerdown', down, { passive: false });
       listen(button, 'pointerup', up, { passive: false });
       listen(button, 'pointercancel', up, { passive: false });
@@ -158,12 +199,41 @@ export class InputController {
 
     const steering = root.querySelector('.touch-steering');
     const wheel = root.querySelector('.steering-wheel');
+    const horn = root.querySelector('.wheel-horn');
     const toggle = root.querySelector('[data-toggle="steer"]');
+    const tiltToggle = root.querySelector('[data-toggle="tilt"]');
+    const hornDown = (e) => {
+      e.preventDefault();
+      horn.setPointerCapture?.(e.pointerId);
+      horn.classList.add('pressed');
+      window.setTimeout(() => bus.emit('input:hornStart', {}), 0);
+    };
+    const hornUp = (e) => {
+      e.preventDefault();
+      horn.classList.remove('pressed');
+      bus.emit('input:hornStop', {});
+    };
+    listen(horn, 'pointerdown', hornDown, { passive: false });
+    listen(horn, 'pointerup', hornUp, { passive: false });
+    listen(horn, 'pointercancel', hornUp, { passive: false });
+    listen(horn, 'lostpointercapture', hornUp, { passive: false });
+    listen(tiltToggle, 'click', async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (this.tiltEnabled) this._disableTilt();
+      else await this._enableTilt();
+      tiltToggle.classList.toggle('active', this.tiltEnabled);
+      tiltToggle.querySelector('small').textContent = this.tiltEnabled ? 'TILT ON' : 'TILT';
+      tiltToggle.setAttribute('aria-label', this.tiltEnabled ? 'Disable tilt steering' : 'Enable tilt steering');
+    });
     listen(toggle, 'click', (e) => {
       e.preventDefault(); this.touchMode = this.touchMode === 'buttons' ? 'wheel' : 'buttons';
       steering.classList.toggle('buttons-mode', this.touchMode === 'buttons');
       steering.classList.toggle('wheel-mode', this.touchMode === 'wheel');
       toggle.querySelector('small').textContent = this.touchMode === 'wheel' ? 'ARROWS' : 'WHEEL';
+      for (const [pointerId, hold] of this._touchHolds) {
+        if (hold.action === 'steer') this._touchHolds.delete(pointerId);
+      }
+      root.querySelectorAll('[data-steer]').forEach((button) => button.classList.remove('pressed'));
       this.touch.steer = 0; this._wheelTurn = 0; wheel.style.setProperty('--turn', '0deg');
     });
     const wheelAngle = (e) => {
@@ -181,7 +251,7 @@ export class InputController {
       this.touch.steer = steer; this.lastDevice = 'touch';
       wheel.style.setProperty('--turn', `${this._wheelTurn}deg`); wheel.setAttribute('aria-valuenow', String(Math.round(steer * 100)));
     };
-    listen(wheel, 'pointerdown', (e) => { e.preventDefault(); this._wheelPointer = e.pointerId; this._wheelLastAngle = wheelAngle(e); wheel.setPointerCapture?.(e.pointerId); wheel.classList.add('pressed'); }, { passive: false });
+    listen(wheel, 'pointerdown', (e) => { if (e.target.closest('.wheel-horn')) return; e.preventDefault(); this._wheelPointer = e.pointerId; this._wheelLastAngle = wheelAngle(e); wheel.setPointerCapture?.(e.pointerId); wheel.classList.add('pressed'); }, { passive: false });
     listen(wheel, 'pointermove', (e) => { if (this._wheelPointer === e.pointerId) wheelMove(e); }, { passive: false });
     const wheelUp = (e) => { e.preventDefault(); if (this._wheelPointer !== e.pointerId) return; this._wheelPointer = null; this._wheelTurn = 0; wheel.classList.remove('pressed'); this.touch.steer = 0; wheel.style.setProperty('--turn', '0deg'); wheel.setAttribute('aria-valuenow', '0'); };
     listen(wheel, 'pointerup', wheelUp, { passive: false }); listen(wheel, 'pointercancel', wheelUp, { passive: false });
@@ -194,6 +264,53 @@ export class InputController {
     const next = mode === 'hood' ? 'WIDE' : mode === 'wide' ? 'CHASE' : 'FRONT';
     label.textContent = next;
     button.setAttribute('aria-label', `Switch to ${next.toLowerCase()} camera view`);
+  }
+  setSteeringSensitivity(value) { this.steeringSensitivity = Math.max(.6, Math.min(1.4, Number(value) || 1)); }
+
+  async _enableTilt() {
+    if (typeof window === 'undefined' || typeof window.DeviceOrientationEvent === 'undefined') return false;
+    try {
+      const DOE = window.DeviceOrientationEvent;
+      if (typeof DOE.requestPermission === 'function') {
+        const permission = await DOE.requestPermission();
+        if (permission !== 'granted') return false;
+      }
+      this._tiltNeutral = null;
+      this._tiltTarget = 0;
+      this._tiltSteer = 0;
+      window.addEventListener('deviceorientation', this._onOrientation, { passive: true });
+      this.tiltEnabled = true;
+      return true;
+    } catch (e) {
+      console.warn('[input] tilt steering unavailable', e);
+      return false;
+    }
+  }
+
+  _disableTilt() {
+    window.removeEventListener('deviceorientation', this._onOrientation);
+    this.tiltEnabled = false;
+    this._tiltNeutral = null;
+    this._tiltTarget = 0;
+    this._tiltSteer = 0;
+  }
+
+  _updateTilt(e) {
+    if (!this.tiltEnabled) return;
+    const angle = screen.orientation?.angle ?? window.orientation ?? 0;
+    let value = Number(e.gamma);
+    if (Math.abs(angle) === 90) {
+      value = Number(e.beta);
+      if (angle === 90) value *= -1;
+    }
+    if (!Number.isFinite(value)) return;
+    if (this._tiltNeutral == null) this._tiltNeutral = value;
+    let delta = value - this._tiltNeutral;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    const sign = Math.sign(delta);
+    const degrees = Math.max(0, Math.abs(delta) - 2.5);
+    this._tiltTarget = Math.max(-1, Math.min(1, sign * degrees / 24));
   }
 
   _keyHeld(action) {
@@ -279,7 +396,17 @@ export class InputController {
       this.steer = this.gpSteer;
     } else {
       let s = this.steer;
-      const target = this.lastDevice === 'touch' ? this.touch.steer : kbTarget;
+      // Keyboard repeat events (for example holding W) must not steal steering
+      // from an actively pressed on-screen arrow or steering wheel pointer.
+      const touchSteeringActive = this._wheelPointer != null ||
+        [...this._touchHolds.values()].some((hold) => hold.action === 'steer');
+      const tappedSteeringActive = t < this._touchSteerTapUntil;
+      const tiltStep = Math.min(1, dt * 10);
+      this._tiltSteer += (this._tiltTarget - this._tiltSteer) * tiltStep;
+      const target = touchSteeringActive
+        ? this.touch.steer
+        : tappedSteeringActive ? this._touchSteerTapValue
+          : this.tiltEnabled ? this._tiltSteer : kbTarget;
       if (target === 0) {
         const step = dt / STEER_RELEASE_TIME;
         s = Math.abs(s) <= step ? 0 : s - Math.sign(s) * step;
@@ -294,7 +421,7 @@ export class InputController {
     const st = this._state;
     st.throttle = Math.max(this._keyHeld('accelerate') ? 1 : 0, this.gpThrottle, this.touch.throttle ? 1 : 0);
     st.brake = Math.max(this._keyHeld('brake') ? 1 : 0, this.gpBrake, this.touch.brake ? 1 : 0);
-    st.steer = Math.max(-1, Math.min(1, this.steer));
+    st.steer = Math.max(-1, Math.min(1, this.steer * this.steeringSensitivity));
     st.drift = this._keyHeld('drift') || !!this.gpHeld.drift || !!this.touch.drift;
     st.item = this.itemEdge;
     this.itemEdge = false;
@@ -309,10 +436,17 @@ export class InputController {
     for (const k in this.latch) this.latch[k] = false;
     this.itemEdge = false;
     this.steer = 0;
+    this._touchHolds.clear();
+    this._touchSteerTapValue = 0;
+    this._touchSteerTapUntil = 0;
+    this._tiltTarget = 0;
+    this._tiltSteer = 0;
+    this.touchRoot?.querySelectorAll('.pressed').forEach((node) => node.classList.remove('pressed'));
     Object.assign(this.touch, { throttle: 0, brake: 0, steer: 0, drift: false, item: false, lookBack: false });
   }
 
   dispose() {
+    this._disableTilt();
     const target = this.target;
     if (target?.removeEventListener) {
       target.removeEventListener('keydown', this._onKeyDown);

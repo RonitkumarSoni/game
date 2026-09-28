@@ -54,15 +54,16 @@ function neutralInput() {
 }
 
 export class Kart {
-  constructor({ scene = null, track = null, character = null, isPlayer = false, index = 0, model = null } = {}) {
+  constructor({ scene = null, track = null, character = null, vehicle = null, isPlayer = false, index = 0, model = null } = {}) {
     this.scene = scene;
     this.track = track;
     this.character = character || { id: 'racer', name: 'Racer', stats: {} };
+    this.vehicle = vehicle || { id: 'standard', name: 'Standard Kart', stats: this.character.stats || {} };
     this.isPlayer = !!isPlayer;
     this.index = index | 0;
     this.model = model || null;
 
-    const st = this.character.stats || {};
+    const st = this.vehicle.stats || {};
     this.stats = {
       maxSpeed: PHYSICS.maxSpeed * statLerp(st.speed, 0.93, 1.07),
       accel: PHYSICS.accel * statLerp(st.accel, 0.8, 1.28),

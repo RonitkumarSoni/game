@@ -13,14 +13,15 @@ const _tan = new THREE.Vector3();
 const _pt = new THREE.Vector3();
 
 export class AIDriver {
-  constructor(kart, track, { difficulty = 'normal', personality = null } = {}) {
+  constructor(kart, track, { difficulty = 'normal', personality = null, random = Math.random } = {}) {
     this.kart = kart;
     this.track = track;
     this.difficulty = DIFFICULTY[difficulty] ? difficulty : 'normal';
     this.cfg = DIFFICULTY[this.difficulty];
     this.skill = clamp(this.cfg.aiSkill ?? 0.75, 0, 1);
 
-    const r = () => Math.random();
+    this.random = typeof random === 'function' ? random : Math.random;
+    const r = () => this.random();
     const p = personality || {};
     // Personality: preferred lane, how much it weaves, aggression with items, drift love, look-ahead.
     this.laneBias = p.laneBias ?? (r() * 2 - 1) * 0.6;          // fraction of half road width
@@ -47,6 +48,11 @@ export class AIDriver {
     this.itemCooldown = 0;
     this.lastItem = null;
     this.avoidOffset = 0;
+    this.racecraftOffset = 0;
+    this.racecraftTarget = 0;
+    this.racecraftTimer = 0;
+    this.trafficBrake = 0;
+    this.itemLookBack = false;
     this.lastProgress = null;
     this.progressTimer = 0;
 
@@ -54,9 +60,9 @@ export class AIDriver {
       bus.on('race:go', () => {
         // Random rocket starts by skill.
         if (!this.kart) return;
-        if (Math.random() < this.skill * 0.8) {
-          const strong = Math.random() < this.skill;
-          const delay = Math.random() * 0.15;
+        if (this.random() < this.skill * 0.8) {
+          const strong = this.random() < this.skill;
+          const delay = this.random() * 0.15;
           setTimeout(() => this.kart?.applyBoost?.(strong ? 1.2 : 0.6, strong ? 1 : 0.7, 'start'), delay * 1000);
         }
       }),
@@ -108,6 +114,17 @@ export class AIDriver {
     // ---- lane selection
     let lane = this.laneBias * halfW * 0.55 + Math.sin(this.time * this.laneFreq * Math.PI * 2 + this.lanePhase) * halfW * this.laneWeave;
     lane *= 1 - clamp(cornerMag / 1.2, 0, 0.75); // tighten toward the racing line in corners
+    const rift = ctx.riftEvents;
+    if (rift && (rift.phase === 'warning' || rift.phase === 'active')) {
+      let delta = rift.zoneT - t; delta -= Math.floor(delta + 0.5);
+      const aheadMeters = delta * L;
+      if (aheadMeters > 0 && aheadMeters < 130) {
+        const commit = clamp((130 - aheadMeters) / 75, 0.2, 0.92) * (0.55 + this.skill * 0.4);
+        const riftLane = rift.zoneSide * halfW * 0.44;
+        lane += (riftLane - lane) * commit;
+      }
+    }
+    lane += this._racecraft(dt, ctx, halfW, cornerMag);
     const avoid = this._avoidance(ctx, t, L, halfW, lane);
     this.avoidOffset += (avoid - this.avoidOffset) * (1 - Math.exp(-6 * dt));
     lane = clamp(lane + this.avoidOffset, -halfW * 0.8, halfW * 0.8);
@@ -188,11 +205,11 @@ export class AIDriver {
       absSpeed * Math.abs(cornerFar) / Math.max(35, absSpeed * 1.6) > (kart.stats?.turnRate || 2) * 0.2 &&
       Math.abs(steer) > 0.2) {
       // Decide once per corner entry
-      if (Math.random() < this.driftLove * 0.9 + 0.05) {
+      if (this.random() < this.driftLove * 0.9 + 0.05) {
         drift = true;
         this._driftAttempt = 0.5;
         this._driftSteerDir = cornerFar > 0 ? -1 : 1;
-        this.driftTargetLevel = Math.random() < this.skill ? 3 : 2;
+        this.driftTargetLevel = this.random() < this.skill ? 3 : 2;
       } else {
         this.driftCooldown = 1.0;
       }
@@ -242,11 +259,18 @@ export class AIDriver {
       steer = clamp(err * 3, -1, 1);
     }
 
+    // Do not blindly ram a slower kart when there is not enough room to complete the pass.
+    if (this.trafficBrake > 0 && this.reverseTime <= 0) {
+      throttle = Math.min(throttle, 1 - this.trafficBrake * 0.9);
+      brake = Math.max(brake, this.trafficBrake * 0.45);
+    }
+
     inp.throttle = throttle;
     inp.brake = brake;
     inp.steer = clamp(steer, -1, 1);
     inp.drift = drift;
     inp.item = this._items(dt, ctx, cornerFar, disabled);
+    inp.lookBack = !!this.itemLookBack;
   }
 
   _forceRespawn() {
@@ -300,12 +324,60 @@ export class AIDriver {
     return wrapAngle(hb - ha);
   }
 
+  /** Sustained overtaking and defensive lane choices, separate from last-second avoidance. */
+  _racecraft(dt, ctx, halfW, cornerMag) {
+    this.racecraftTimer -= dt;
+    const others = this._relKarts(ctx);
+    if (this.racecraftTimer <= 0) {
+      this.racecraftTimer = 0.28 + this.random() * (0.34 + (1 - this.skill) * 0.25);
+      let target = 0;
+      const ahead = others
+        .filter((o) => o.ahead > 2 && o.ahead < 30 && Math.abs(o.side) < halfW * 0.95)
+        .sort((a, b) => a.ahead - b.ahead)[0];
+
+      if (ahead && (this.kart.speed || 0) > (ahead.kart.speed || 0) - 1.5) {
+        const passWidth = Math.min(halfW * 0.55, 3.2 + this.aggression * 1.5);
+        // Score both sides so bots do not all choose the same blocked lane.
+        const clearance = (sideSign) => {
+          const desired = ahead.side + sideSign * passWidth;
+          let score = halfW * 0.78 - Math.abs(desired);
+          for (const o of others) {
+            if (o === ahead || o.ahead < -3 || o.ahead > ahead.ahead + 12) continue;
+            const gap = Math.abs(o.side - desired);
+            if (gap < 4.2) score -= (4.2 - gap) * 1.8;
+          }
+          return score;
+        };
+        const leftScore = clearance(1);
+        const rightScore = clearance(-1);
+        const sideSign = leftScore === rightScore
+          ? (this.laneBias >= 0 ? 1 : -1)
+          : (leftScore > rightScore ? 1 : -1);
+        target = clamp(ahead.side + sideSign * passWidth, -halfW * 0.68, halfW * 0.68);
+      } else if (cornerMag < 0.38 && this.aggression > 0.42) {
+        // On a straight, cover the line of a close challenger instead of weaving randomly.
+        const behind = others
+          .filter((o) => o.ahead < -2 && o.ahead > -16 && Math.abs(o.side) < halfW * 0.8)
+          .sort((a, b) => b.ahead - a.ahead)[0];
+        if (behind && (behind.kart.speed || 0) > (this.kart.speed || 0) + 0.5) {
+          target = clamp(behind.side * 0.72, -halfW * 0.48, halfW * 0.48);
+        }
+      }
+      this.racecraftTarget = target;
+    }
+
+    const response = 2.8 + this.skill * 2.8;
+    this.racecraftOffset += (this.racecraftTarget - this.racecraftOffset) * (1 - Math.exp(-response * dt));
+    return this.racecraftOffset * (1 - clamp((cornerMag - 0.25) / 0.85, 0, 0.72));
+  }
+
   /** Lateral offset (m) to steer around hazards and karts directly ahead. */
   _avoidance(ctx, t, L, halfW, lane) {
     const kart = this.kart;
     const fx = Math.sin(kart.heading), fz = Math.cos(kart.heading);
     const rx = -Math.cos(kart.heading), rz = Math.sin(kart.heading);
     let offset = 0;
+    this.trafficBrake = 0;
     const range = 18 + Math.abs(kart.speed || 0) * 0.6;
 
     let hazards = null;
@@ -350,15 +422,26 @@ export class AIDriver {
       for (const o of karts) {
         if (!o || o === kart) continue;
         const dx = o.position.x - kart.position.x, dz = o.position.z - kart.position.z;
-        const ahead = dx * fx + dz * fz;
-        if (ahead < 0.5 || ahead > 14) continue;
+        const aheadNow = dx * fx + dz * fz;
+        if (aheadNow < 0.5 || aheadNow > 24) continue;
         const rel = (kart.speed || 0) - (o.speed || 0);
-        if (rel < 1 && ahead > 5) continue;
-        const side = dx * rx + dz * rz;
+        if (rel < 0.5 && aheadNow > 6) continue;
+        const predict = clamp(aheadNow / Math.max(4, rel), 0.18, 0.65);
+        const ovx = o.velocity?.x || 0, ovz = o.velocity?.z || 0;
+        const kvx = kart.velocity?.x || 0, kvz = kart.velocity?.z || 0;
+        const pdx = dx + (ovx - kvx) * predict;
+        const pdz = dz + (ovz - kvz) * predict;
+        const ahead = pdx * fx + pdz * fz;
+        const side = pdx * rx + pdz * rz;
         const clear = (o.radius || 1.3) + (kart.radius || 1.3) + 0.8;
-        if (Math.abs(side) < clear) {
+        if (ahead > -1 && Math.abs(side) < clear) {
           const dir = side >= 0 ? -1 : 1;
-          offset += dir * (clear - Math.abs(side)) * 0.9;
+          offset += dir * (clear - Math.abs(side)) * (0.9 + this.skill * 0.35);
+          if (aheadNow < 9 && rel > 1.5) {
+            const blocked = clamp((clear - Math.abs(side)) / clear, 0, 1);
+            const urgent = clamp((9 - aheadNow) / 7, 0, 1);
+            this.trafficBrake = Math.max(this.trafficBrake, blocked * urgent);
+          }
         }
       }
     }
@@ -393,7 +476,7 @@ export class AIDriver {
     if (!this._seen) this._seen = new WeakMap();
     let v = this._seen.get(hz);
     if (v === undefined) {
-      v = Math.random() < 0.25 + this.skill * 0.75;
+      v = this.random() < 0.25 + this.skill * 0.75;
       try { this._seen.set(hz, v); } catch { return v; }
     }
     return v && ahead < range * (0.55 + this.skill * 0.45);
@@ -401,6 +484,7 @@ export class AIDriver {
 
   _items(dt, ctx, cornerFar, disabled) {
     const kart = this.kart;
+    this.itemLookBack = false;
     if (this.itemCooldown > 0) this.itemCooldown -= dt;
     const item = kart.item;
     if (!item) { this.itemHoldTime = 0; this.lastItem = null; return false; }
@@ -428,8 +512,12 @@ export class AIDriver {
         use = others.some((o) => o.ahead < -2 && o.ahead > -20 && Math.abs(o.side) < 4) || hold > 14 / eager;
         break;
       case 'green_shell':
-        use = others.some((o) => o.ahead > 4 && o.ahead < 45 && Math.abs(o.side) < 1.2 + o.ahead * 0.06) ||
-          (hold > 10 && others.some((o) => o.ahead < -2 && o.ahead > -15 && Math.abs(o.side) < 3)) || hold > 16 / eager;
+        {
+          const frontShot = others.some((o) => o.ahead > 4 && o.ahead < 45 && Math.abs(o.side) < 1.2 + o.ahead * 0.06);
+          const rearShot = hold > 4 && others.some((o) => o.ahead < -2 && o.ahead > -18 && Math.abs(o.side) < 2.8);
+          use = frontShot || rearShot || hold > 16 / eager;
+          this.itemLookBack = !frontShot && rearShot;
+        }
         break;
       case 'red_shell':
         use = (place > 1 && others.some((o) => o.ahead > 5 && o.ahead < 90 && Math.abs(o.angle) < 0.8)) || hold > 8 / eager;
@@ -445,7 +533,7 @@ export class AIDriver {
     }
     if (kart.finished && hold > 2) use = true;
     if (use) {
-      this.itemCooldown = item === 'triple_mushroom' ? 0.9 + Math.random() * 0.6 : 0.5 + Math.random() * 0.6;
+      this.itemCooldown = item === 'triple_mushroom' ? 0.9 + this.random() * 0.6 : 0.5 + this.random() * 0.6;
       if (item !== 'triple_mushroom') this.itemHoldTime = 0;
     }
     return use;

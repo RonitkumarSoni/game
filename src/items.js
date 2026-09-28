@@ -198,10 +198,11 @@ function buildItemVisual(type) {
 // ItemSystem
 // ---------------------------------------------------------------------------------------------
 export class ItemSystem {
-  constructor({ scene, track, karts }) {
+  constructor({ scene, track, karts, random = Math.random }) {
     this.scene = scene;
     this.track = track;
     this.karts = karts || [];
+    this.random = typeof random === 'function' ? random : Math.random;
     this.group = new THREE.Group();
     this.group.name = 'ItemSystem';
     scene?.add(this.group);
@@ -328,8 +329,8 @@ export class ItemSystem {
     bus.emit('item:pickup', { kart, position: b.base });
     if (kart.item == null && !this.roulettes.has(kart) && !kart.finished) {
       const final = this._rollItem(kart);
-      const dur = kart.isPlayer ? ROULETTE_PLAYER : ROULETTE_AI_MIN + Math.random() * (ROULETTE_AI_MAX - ROULETTE_AI_MIN);
-      this.roulettes.set(kart, { timer: 0, duration: dur, final, display: ROULETTE_CYCLE[(Math.random() * ROULETTE_CYCLE.length) | 0], cycleTimer: 0 });
+      const dur = kart.isPlayer ? ROULETTE_PLAYER : ROULETTE_AI_MIN + this.random() * (ROULETTE_AI_MAX - ROULETTE_AI_MIN);
+      this.roulettes.set(kart, { timer: 0, duration: dur, final, display: ROULETTE_CYCLE[(this.random() * ROULETTE_CYCLE.length) | 0], cycleTimer: 0 });
       bus.emit('item:roulette', { kart });
     }
   }
@@ -348,7 +349,7 @@ export class ItemSystem {
       if (ITEM_ORDER[i] === 'blue_shell' && (blueActive || place === 1)) continue;
       total += weights[i];
     }
-    let r = Math.random() * total;
+    let r = this.random() * total;
     for (let i = 0; i < ITEM_ORDER.length; i++) {
       if (ITEM_ORDER[i] === 'blue_shell' && (blueActive || place === 1)) continue;
       r -= weights[i];
@@ -366,7 +367,7 @@ export class ItemSystem {
         // slow down near the end
         r.cycleTimer = remaining < 0.4 ? 0.14 : 0.07;
         let idx = ROULETTE_CYCLE.indexOf(r.display);
-        idx = (idx + 1 + ((Math.random() * 2) | 0)) % ROULETTE_CYCLE.length;
+        idx = (idx + 1 + ((this.random() * 2) | 0)) % ROULETTE_CYCLE.length;
         r.display = ROULETTE_CYCLE[idx];
       }
       if (r.timer >= r.duration) {
@@ -488,7 +489,7 @@ export class ItemSystem {
       t: finite(owner?.trackT, undefined),
       bounces: 0, life: 0, flying: false,
       holder: this._acquire(type),
-      target: null, phase: 'travel', hoverTimer: 0, spin: Math.random() * 6,
+      target: null, phase: 'travel', hoverTimer: 0, spin: this.random() * 6,
       radius: type === 'banana' ? BANANA_RADIUS : SHELL_RADIUS,
     };
     e.hazard = { position: e.pos, radius: e.radius, type, velocity: e.vel, owner };
@@ -526,7 +527,7 @@ export class ItemSystem {
       _v2.copy(kart.position).addScaledVector(fwd, -(r + 1.1));
       const e = this._makeEntity('banana', kart, _v2);
       e.pos.y = this._groundHeight(e.pos, e);
-      e.holder.rotation.y = Math.random() * Math.PI * 2;
+      e.holder.rotation.y = this.random() * Math.PI * 2;
     }
   }
 

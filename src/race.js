@@ -14,12 +14,13 @@ export class RaceManager {
    * @param {number} o.laps
    * @param {boolean} o.silent - no bus events (attract mode)
    */
-  constructor({ track, karts, player = null, laps = RACE.laps, silent = false }) {
+  constructor({ track, karts, player = null, laps = RACE.laps, silent = false, random = Math.random }) {
     this.track = track;
     this.karts = karts;
     this.player = player;
     this.laps = Math.max(1, laps | 0);
     this.silent = silent;
+    this.random = typeof random === 'function' ? random : Math.random;
     this.phase = 'grid';           // 'grid' | 'countdown' | 'racing' | 'done'
     this.countdownTime = 0;
     this.countdownValue = null;    // 3,2,1,'GO' for HUD
@@ -76,6 +77,18 @@ export class RaceManager {
   _tOf(k) {
     if (typeof k.trackT === 'number' && isFinite(k.trackT)) return k.trackT;
     try { return this.track.getSurfaceInfo(k.position).t; } catch (e) { return 0; }
+  }
+
+  /** Fresh centerline projection used for live ranking; never rely only on a cached kart value. */
+  _rankTOf(k) {
+    try {
+      const info = this.track.getSurfaceInfo(k.position, k.trackT);
+      if (info && Number.isFinite(info.t)) {
+        k.trackT = ((info.t % 1) + 1) % 1;
+        return k.trackT;
+      }
+    } catch (e) { /* fall back to the kart's last valid projection */ }
+    return this._tOf(k);
   }
 
   startCountdown() {
@@ -178,7 +191,7 @@ export class RaceManager {
   _updateProgress() {
     for (const k of this.karts) {
       if (k.finished) { k.raceProgress = this.laps + 1 + (100 - (k._finishOrder ?? 0)) * 1e-4; continue; }
-      const t = this._tOf(k);
+      const t = this._rankTOf(k);
       // behind the line on the grid -> t close to 1, lapCount 0 -> progress just below 1
       k.raceProgress = k._lapCount + t;
       if (k._startProgress == null && this.phase === 'racing') k._startProgress = k.raceProgress;
@@ -186,14 +199,18 @@ export class RaceManager {
   }
 
   _sortPlaces() {
-    const s = this.standings;
+    const s = this.karts.slice();
     s.sort((a, b) => {
       if (a.finished && b.finished) return a.finishTime - b.finishTime;
       if (a.finished) return -1;
       if (b.finished) return 1;
-      return b.raceProgress - a.raceProgress;
+      const progressDelta = b.raceProgress - a.raceProgress;
+      if (Math.abs(progressDelta) > 1e-6) return progressDelta;
+      // Stable tie-break keeps the order deterministic when karts are side-by-side.
+      return (a.place || a.index + 1) - (b.place || b.index + 1);
     });
     for (let i = 0; i < s.length; i++) s[i].place = i + 1;
+    this.standings = s;
   }
 
   _updateWrongWay(dt) {
@@ -246,7 +263,7 @@ export class RaceManager {
       const avg = Math.max(12, covered / Math.max(1, this.raceTime));
       const remaining = Math.max(0, (this.laps + 1 - k.raceProgress)) * len;
       let est = this.raceTime + remaining / avg;
-      if (est <= lastTime) est = lastTime + 0.3 + Math.random() * 0.8;
+      if (est <= lastTime) est = lastTime + 0.3 + this.random() * 0.8;
       lastTime = est;
       rows.push({ kart: k, time: est, estimated: true });
     }

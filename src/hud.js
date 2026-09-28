@@ -181,6 +181,7 @@ export class HUD {
     this._rouletteIdx = 0;
     this._lastItemKey = '';
     this._standKey = '';
+    this._standOrder = [];
     this.active = false;
 
     const r = this.root;
@@ -282,6 +283,10 @@ export class HUD {
     on('race:countdown', (d) => this.showCount(String(d.n), 'n' + d.n));
     on('race:go', () => { this.showCount('GO!', 'go'); clearTimeout(this._cdT); this._cdT = setTimeout(() => this.countEl.classList.remove('show'), 1100); });
     on('race:finalLap', () => this.banner('FINAL LAP!', 'final'));
+    on('rift:warning', (d) => this.banner(`RIFT SHIFT · ${d.side} LANE`, 'final'));
+    on('rift:start', (d) => this.toast(`${d.side} RIFT LANE ACTIVE`));
+    on('rift:hit', () => this.toast('RIFT SURGE!'));
+    on('rift:end', () => this.toast('RIFT LANE CLOSED'));
     on('race:lap', (d) => {
       if (d.kart && d.kart.isPlayer) {
         restartAnim(this.lapEl, 'pulse');
@@ -312,6 +317,7 @@ export class HUD {
     this.laps = laps;
     this._last = {};
     this._standKey = '';
+    this._standOrder = [];
     this._lastItemKey = '';
     this.splitsEl.innerHTML = '';
     this.countEl.className = 'hud-countdown';
@@ -547,19 +553,20 @@ export class HUD {
 
     // standings
     const standings = (race && race.standings) || karts || [];
-    const sk = standings.map((k) => k.index).join(',');
-    if (sk !== this._standKey) {
-      this._standKey = sk;
-      for (let i = 0; i < this.standRows.length; i++) {
-        const row = this.standRows[i], k = standings[i];
-        if (!k) { row.row.style.display = 'none'; continue; }
-        row.row.style.display = '';
-        row.pos.textContent = i + 1;
-        row.chip.style.background = k.character ? hex(k.character.color) : '#888';
-        row.name.textContent = k.character ? k.character.name : '?';
-        row.row.classList.toggle('me', k === player);
-      }
+    const sk = standings.map((k) => `${k.index}:${k.place}`).join(',');
+    this._standKey = sk;
+    for (let i = 0; i < this.standRows.length; i++) {
+      const row = this.standRows[i], k = standings[i];
+      if (!k) { row.row.style.display = 'none'; continue; }
+      const changed = this._standOrder[i] !== k.index;
+      row.row.style.display = '';
+      row.pos.textContent = i + 1;
+      row.chip.style.background = k.character ? hex(k.character.color) : '#888';
+      row.name.textContent = k.character ? k.character.name : '?';
+      row.row.classList.toggle('me', k === player);
+      if (changed && this._standOrder.length) restartAnim(row.row, 'rank-change');
     }
+    this._standOrder = standings.map((k) => k.index);
 
     this._drawMinimap(standings, player, time, itemSystem);
   }

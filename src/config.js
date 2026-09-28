@@ -41,6 +41,16 @@ export const CHARACTERS = [
   { id: 'vex',    name: 'Vex',    title: 'Drift Phantom', archetype: 'Drift', color: 0xc62cff, accent: 0xffd6ff, skin: 0xa76d53, hat: 'bow', stats: { speed: 3, accel: 4, handling: 5, weight: 1 } },
 ];
 
+// Vehicles own the driving stats; pilots are now cosmetic identities and can use any chassis.
+export const VEHICLES = [
+  { id: 'nova', name: 'Nova GT', role: 'BALANCED', stats: { speed: 3, accel: 3, handling: 3, weight: 3 } },
+  { id: 'comet', name: 'Comet XR', role: 'SPEED', stats: { speed: 5, accel: 2, handling: 2, weight: 3 } },
+  { id: 'volt', name: 'Volt Sprint', role: 'ACCEL', stats: { speed: 3, accel: 5, handling: 3, weight: 1 } },
+  { id: 'phantom', name: 'Rift Phantom', role: 'DRIFT', stats: { speed: 3, accel: 3, handling: 5, weight: 1 } },
+  { id: 'aegis', name: 'Aegis Heavy', role: 'DEFENSE', stats: { speed: 4, accel: 1, handling: 2, weight: 5 } },
+  { id: 'vector', name: 'Vector RS', role: 'TECHNICAL', stats: { speed: 2, accel: 4, handling: 4, weight: 2 } },
+];
+
 export const ITEMS = ['mushroom', 'triple_mushroom', 'banana', 'green_shell', 'red_shell', 'star', 'lightning', 'blue_shell'];
 
 // Legacy simulation ids stay stable during migration; all player-facing copy uses the original NRR names.

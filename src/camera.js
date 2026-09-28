@@ -42,6 +42,7 @@ export class ChaseCamera {
     this.lookBack = false;
     this.viewMode = 'chase';
     this.initialized = false;
+    this.shakeEnabled = true;
 
     this._pos = new THREE.Vector3();
     this._look = new THREE.Vector3();
@@ -69,6 +70,7 @@ export class ChaseCamera {
   }
 
   addShake(amount) {
+    if (!this.shakeEnabled) return;
     this.shake = clamp(Math.max(this.shake, fin(amount, 0)) + fin(amount, 0) * 0.25, 0, 1.2);
   }
 

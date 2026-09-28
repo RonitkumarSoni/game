@@ -1,6 +1,6 @@
 // Title screen, character select (with difficulty / laps options + controls help), pause menu, gamepad navigation.
 import { bus } from './events.js';
-import { CHARACTERS, GAME_TITLE } from './config.js';
+import { CHARACTERS, VEHICLES, GAME_TITLE } from './config.js';
 import { gsap } from 'gsap';
 
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
@@ -37,29 +37,38 @@ export class Menu {
     this.charIndex = 0;
     this.diffIndex = 1;
     this.lapsIndex = 1;
+    this.vehicleIndex = 0;
     this.zone = 'grid';
     this.optIndex = 0;
     this.pauseIndex = 0;
     this._loadingTimer = null;
     this._loadingTween = null;
+    this._loadingIntroTimeline = null;
     this._loadingPhase = 0;
     this._titleTimeline = null;
+    this._previewTimeline = null;
     this._backgroundTween = null;
     this._promptTimer = null;
     this._promptGradient = 0;
     this._promptDirection = 1;
     this._pad = { prev: {}, repeatT: 0, dir: null };
     this.gameState = 'title';
+    this.userSettings = { volume: 80, graphics: 'high', steerSensitivity: 100, cameraShake: true, cameraView: 'chase' };
+    this._settingsReturn = 'title';
     try {
       const s = JSON.parse(localStorage.getItem('nrr-settings') || '{}');
       if (s.charIndex >= 0 && s.charIndex < CHARACTERS.length) this.charIndex = s.charIndex;
       if (s.diffIndex >= 0 && s.diffIndex < DIFFS.length) this.diffIndex = s.diffIndex;
       if (s.lapsIndex >= 0 && s.lapsIndex < LAPS.length) this.lapsIndex = s.lapsIndex;
+      if (s.vehicleIndex >= 0 && s.vehicleIndex < VEHICLES.length) this.vehicleIndex = s.vehicleIndex;
+      const u = JSON.parse(localStorage.getItem('nrr-player-settings') || '{}');
+      this.userSettings = { ...this.userSettings, ...u };
     } catch (e) { /* storage unavailable */ }
 
     this._buildTitle();
     this._buildSelect();
     this._buildPause();
+    this._buildSettings();
     this._buildLoading();
     this._initAmbientBackgroundMotion();
 
@@ -107,7 +116,9 @@ export class Menu {
       <div class="title-foot">
         <span>© 2026 Neon Rift Racers · Break the track. Rule the rift.</span>
         <span class="kc">M</span> mute
-      </div>`;
+      </div>
+      <button class="title-settings" type="button">SETTINGS</button>`;
+    t.querySelector('.title-settings').addEventListener('click', (e) => { e.stopPropagation(); this.showSettings('title'); });
     t.addEventListener('click', () => { if (this.screen === 'title') this._toSelect(); });
   }
 
@@ -119,7 +130,11 @@ export class Menu {
         <div class="sel-grid"></div>
         <div class="sel-side">
           <div class="preview">
-            <div class="pv-portrait"><img alt=""><span class="pv-initial"></span></div>
+            <div class="pv-portrait">
+              <div class="pv-content"><img alt=""><span class="pv-initial"></span></div>
+              <div class="portrait-curtain curtain-left"></div>
+              <div class="portrait-curtain curtain-right"></div>
+            </div>
             <div class="pv-info">
               <div class="pv-name"></div>
               <div class="pv-kart"><span class="swatch"></span><span class="pv-kart-lbl"></span></div>
@@ -127,9 +142,10 @@ export class Menu {
             </div>
           </div>
           <div class="opts">
-            <div class="opt" data-i="0"><span class="opt-lbl">CLASS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <div class="opt" data-i="1"><span class="opt-lbl">LAPS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <button class="btn primary race-btn" data-i="2">RACE!</button>
+            <div class="opt" data-i="0"><span class="opt-lbl">VEHICLE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+            <div class="opt" data-i="1"><span class="opt-lbl">CLASS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+            <div class="opt" data-i="2"><span class="opt-lbl">LAPS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+            <button class="btn primary race-btn" data-i="3">RACE!</button>
           </div>
         </div>
       </div>
@@ -147,6 +163,11 @@ export class Menu {
         <div class="card-stats">${STAT_KEYS.map(([k, , sh]) => `<div class="st"><span>${sh}</span>${statBar(ch.stats[k])}</div>`).join('')}</div>`;
       card.addEventListener('mouseenter', () => { if (this.screen === 'select') { this.zone = 'grid'; this._setChar(i); } });
       card.addEventListener('click', () => {
+        if (this.screen !== 'select') return;
+        this.zone = 'grid';
+        this._setChar(i);
+      });
+      card.addEventListener('dblclick', () => {
         if (this.screen !== 'select') return;
         this.zone = 'grid';
         this._setChar(i, true);
@@ -167,7 +188,7 @@ export class Menu {
     this.optEls = [...s.querySelectorAll('.opts [data-i]')];
     this.optEls.forEach((o, i) => {
       o.addEventListener('mouseenter', () => { if (this.screen === 'select') { this.zone = 'opts'; this.optIndex = i; this._refreshFocus(); } });
-      if (i < 2) {
+      if (i < 3) {
         o.querySelector('.l').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(-1); });
         o.querySelector('.r').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
         o.querySelector('.opt-val').addEventListener('click', () => { this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
@@ -188,6 +209,7 @@ export class Menu {
         <div class="pause-title">PAUSED</div>
         <button class="btn" data-a="resume">RESUME</button>
         <button class="btn" data-a="restart">RESTART</button>
+        <button class="btn" data-a="settings">SETTINGS</button>
         <button class="btn" data-a="quit">QUIT TO MENU</button>
         <div class="controls-help compact">${CONTROLS_HTML}</div>
       </div>`;
@@ -239,11 +261,62 @@ export class Menu {
     });
   }
 
+  _buildSettings() {
+    const s = this.settingsEl = el('div', 'screen settings-screen', this.uiRoot);
+    s.innerHTML = `
+      <div class="settings-panel">
+        <button class="settings-close" type="button" aria-label="Close settings">×</button>
+        <div class="settings-eyebrow">SYSTEM CONFIGURATION</div>
+        <div class="settings-title">SETTINGS</div>
+        <label class="setting-row"><span><b>MASTER VOLUME</b><small>Music, engine and effects</small></span><input data-setting="volume" type="range" min="0" max="100" step="1"><output></output></label>
+        <label class="setting-row"><span><b>STEERING RESPONSE</b><small>Keyboard, touch, wheel and tilt</small></span><input data-setting="steerSensitivity" type="range" min="60" max="140" step="5"><output></output></label>
+        <label class="setting-row"><span><b>GRAPHICS QUALITY</b><small>Resolution, shadows and bloom</small></span><select data-setting="graphics"><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label>
+        <label class="setting-row"><span><b>DEFAULT CAMERA</b><small>Starting race viewpoint</small></span><select data-setting="cameraView"><option value="chase">CHASE</option><option value="hood">FRONT</option><option value="wide">WIDE</option></select></label>
+        <label class="setting-row toggle-row"><span><b>CAMERA SHAKE</b><small>Impacts, boosts and landings</small></span><input data-setting="cameraShake" type="checkbox"><i></i></label>
+        <div class="settings-note">Tilt steering recalibrates when TILT is enabled during a race.</div>
+        <button class="settings-replay" type="button">REPLAY ROOKIE TUTORIAL</button>
+        <button class="btn settings-done" type="button">SAVE & RETURN</button>
+      </div>`;
+    this.settingInputs = [...s.querySelectorAll('[data-setting]')];
+    const update = (input) => {
+      const key = input.dataset.setting;
+      const value = input.type === 'checkbox' ? input.checked : input.type === 'range' ? Number(input.value) : input.value;
+      this.userSettings[key] = value;
+      const out = input.parentElement.querySelector('output');
+      if (out) out.textContent = key === 'volume' || key === 'steerSensitivity' ? `${value}%` : String(value).toUpperCase();
+      try { localStorage.setItem('nrr-player-settings', JSON.stringify(this.userSettings)); } catch (e) { /* unavailable */ }
+      this.h.onSettings && this.h.onSettings({ ...this.userSettings });
+    };
+    this.settingInputs.forEach((input) => {
+      input.addEventListener('input', () => update(input));
+      input.addEventListener('change', () => update(input));
+    });
+    const close = () => this.closeSettings();
+    s.querySelector('.settings-close').addEventListener('click', close);
+    s.querySelector('.settings-done').addEventListener('click', close);
+    s.querySelector('.settings-replay').addEventListener('click', () => {
+      try { localStorage.removeItem('nrr-tutorial-complete'); } catch (e) { /* unavailable */ }
+      bus.emit('ui:confirm');
+      s.querySelector('.settings-replay').textContent = 'TUTORIAL READY FOR NEXT RACE';
+    });
+    this._refreshSettings();
+  }
+
+  _refreshSettings() {
+    if (!this.settingInputs) return;
+    for (const input of this.settingInputs) {
+      const value = this.userSettings[input.dataset.setting];
+      if (input.type === 'checkbox') input.checked = !!value; else input.value = value;
+      const out = input.parentElement.querySelector('output');
+      if (out) out.textContent = input.type === 'range' ? `${value}%` : String(value).toUpperCase();
+    }
+  }
+
   _showOnly(elm) {
     if (elm !== this.loadingEl) this._stopLoadingSequence();
     if (elm !== this.titleEl) this._stopTitleAnimation();
     if (elm !== this.titleEl) this._stopPromptAnimation();
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.loadingEl]) s.classList.toggle('active', s === elm);
+    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.loadingEl]) s.classList.toggle('active', s === elm);
   }
   showTitle() {
     this.screen = 'title';
@@ -303,12 +376,16 @@ export class Menu {
     this._refreshOpts();
   }
   showPause() { this.screen = 'pause'; this.pauseIndex = 0; this._refreshPause(); this._showOnly(this.pauseEl); }
+  showSettings(from = this.screen || 'title') { this._settingsReturn = from === 'pause' ? 'pause' : 'title'; this.screen = 'settings'; this._refreshSettings(); this._showOnly(this.settingsEl); }
+  closeSettings() { bus.emit('ui:back'); if (this._settingsReturn === 'pause') this.showPause(); else this.showTitle(); }
   showLoading(text = 'SYNCING RIFT') {
     this.screen = 'loading';
     this._showOnly(this.loadingEl);
-    this._startLoadingSequence(text);
-    this._startLoadingProgress();
-    this._animateLoadingKart();
+    this._stopLoadingSequence();
+    this._animateLoadingKart(() => {
+      this._startLoadingSequence(text);
+      this._startLoadingProgress();
+    });
   }
 
   _startLoadingProgress() {
@@ -334,16 +411,24 @@ export class Menu {
     });
   }
 
-  _animateLoadingKart() {
+  _animateLoadingKart(onArrive) {
     const layer = this.loadingEl.querySelector('.load-kart-layer');
+    const copy = this.loadingEl.querySelector('.loading-copy');
     gsap.killTweensOf(layer);
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      gsap.set(layer, { clearProps: 'transform,opacity,filter' });
-      return;
-    }
-    gsap.fromTo(layer,
-      { yPercent: 72, scale: .86, opacity: 0, filter: 'blur(8px)' },
-      { yPercent: 0, scale: 1, opacity: 1, filter: 'blur(0px)', duration: 1.35, ease: 'power3.out', clearProps: 'transform,opacity,filter' });
+    gsap.killTweensOf(copy);
+    if (this._loadingIntroTimeline) this._loadingIntroTimeline.kill();
+    gsap.set(copy, { opacity: 0, y: 14 });
+    this._loadingIntroTimeline = gsap.timeline({
+      onComplete: () => {
+        this._loadingIntroTimeline = null;
+        onArrive && onArrive();
+      },
+    });
+    this._loadingIntroTimeline
+      .fromTo(layer,
+        { yPercent: 88, scale: .8, opacity: 0, filter: 'blur(10px)' },
+        { yPercent: 0, scale: 1, opacity: 1, filter: 'blur(0px)', duration: 1.25, ease: 'power3.inOut', clearProps: 'transform,opacity,filter' }, 0)
+      .to(copy, { opacity: 1, y: 0, duration: .38, ease: 'power2.out' }, 1.08);
   }
   hideAll() { this.screen = null; this._showOnly(null); }
 
@@ -372,9 +457,11 @@ export class Menu {
     this._loadingTimer = null;
     if (this._loadingTween) this._loadingTween.kill();
     this._loadingTween = null;
+    if (this._loadingIntroTimeline) this._loadingIntroTimeline.kill();
+    this._loadingIntroTimeline = null;
   }
   get settings() {
-    return { characterIndex: this.charIndex, difficulty: DIFFS[this.diffIndex], laps: LAPS[this.lapsIndex] };
+    return { characterIndex: this.charIndex, vehicleIndex: this.vehicleIndex, difficulty: DIFFS[this.diffIndex], laps: LAPS[this.lapsIndex] };
   }
 
   _toSelect() { bus.emit('ui:confirm'); this.showSelect(); this.h.onScreen && this.h.onScreen('select'); }
@@ -390,7 +477,7 @@ export class Menu {
   }
   _confirmChar() {
     bus.emit('ui:confirm');
-    this.zone = 'opts'; this.optIndex = 2;
+    this.zone = 'opts'; this.optIndex = 3;
     const c = this.cards[this.charIndex].card;
     c.classList.remove('picked'); void c.offsetWidth; c.classList.add('picked');
     this._refreshFocus();
@@ -404,22 +491,43 @@ export class Menu {
     this.pv.portrait.style.setProperty('--kc', hex(ch.color));
     this.pv.name.textContent = ch.name.toUpperCase();
     this.pv.swatch.style.background = `linear-gradient(135deg, ${hex(ch.color)} 60%, ${hex(ch.accent)} 60%)`;
-    this.pv.kartLbl.textContent = `${ch.archetype || 'BALANCED'} // ${ch.title || 'RIFT PILOT'}`;
-    this.pv.stats.innerHTML = STAT_KEYS.map(([k, l]) => `<div class="st big"><span>${l}</span>${statBar(ch.stats[k])}</div>`).join('');
-    this.pv.portrait.classList.remove('pop'); void this.pv.portrait.offsetWidth; this.pv.portrait.classList.add('pop');
+    const vehicle = VEHICLES[this.vehicleIndex];
+    this.pv.kartLbl.textContent = `${vehicle.name.toUpperCase()} // ${vehicle.role}`;
+    this.pv.stats.innerHTML = STAT_KEYS.map(([k, l]) => `<div class="st big"><span>${l}</span>${statBar(vehicle.stats[k])}</div>`).join('');
+    this._animatePortraitReveal();
+  }
+
+  _animatePortraitReveal() {
+    const portrait = this.pv.portrait;
+    const left = portrait.querySelector('.curtain-left');
+    const right = portrait.querySelector('.curtain-right');
+    const content = portrait.querySelector('.pv-content');
+    if (this._previewTimeline) this._previewTimeline.kill();
+    gsap.set([left, right], { xPercent: 0, opacity: 1 });
+    gsap.set(content, { scale: .5, opacity: 0 });
+    this._previewTimeline = gsap.timeline({
+      defaults: { overwrite: 'auto' },
+      onComplete: () => { this._previewTimeline = null; },
+    });
+    this._previewTimeline
+      .to(left, { xPercent: -112, duration: 1, ease: 'power3.inOut' }, 0)
+      .to(right, { xPercent: 112, duration: 1, ease: 'power3.inOut' }, 0)
+      .to(content, { scale: 1, opacity: 1, duration: .75, ease: 'back.out(1.7)' }, .5);
   }
   _refreshOpts() {
     if (!this.optEls) return;
-    this.optEls[0].querySelector('.opt-val').textContent = DIFF_LABEL[DIFFS[this.diffIndex]];
-    this.optEls[1].querySelector('.opt-val').textContent = `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
+    this.optEls[0].querySelector('.opt-val').textContent = VEHICLES[this.vehicleIndex].name.toUpperCase();
+    this.optEls[1].querySelector('.opt-val').textContent = DIFF_LABEL[DIFFS[this.diffIndex]];
+    this.optEls[2].querySelector('.opt-val').textContent = `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
   }
   _refreshFocus() {
     this.cards.forEach((c, j) => c.card.classList.toggle('focus', this.zone === 'grid' && j === this.charIndex));
     this.optEls.forEach((o, j) => o.classList.toggle('focus', this.zone === 'opts' && j === this.optIndex));
   }
   _changeOpt(d) {
-    if (this.optIndex === 0) this.diffIndex = (this.diffIndex + d + DIFFS.length) % DIFFS.length;
-    else if (this.optIndex === 1) this.lapsIndex = (this.lapsIndex + d + LAPS.length) % LAPS.length;
+    if (this.optIndex === 0) { this.vehicleIndex = (this.vehicleIndex + d + VEHICLES.length) % VEHICLES.length; this._refreshPreview(); }
+    else if (this.optIndex === 1) this.diffIndex = (this.diffIndex + d + DIFFS.length) % DIFFS.length;
+    else if (this.optIndex === 2) this.lapsIndex = (this.lapsIndex + d + LAPS.length) % LAPS.length;
     else return;
     bus.emit('ui:move');
     this._refreshOpts(); this._refreshFocus();
@@ -428,7 +536,7 @@ export class Menu {
   }
   _start() {
     if (this.screen !== 'select') return;
-    try { localStorage.setItem('nrr-settings', JSON.stringify({ charIndex: this.charIndex, diffIndex: this.diffIndex, lapsIndex: this.lapsIndex })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('nrr-settings', JSON.stringify({ charIndex: this.charIndex, vehicleIndex: this.vehicleIndex, diffIndex: this.diffIndex, lapsIndex: this.lapsIndex })); } catch (e) { /* ignore */ }
     bus.emit('ui:confirm');
     this.h.onStart && this.h.onStart(this.settings);
   }
@@ -445,6 +553,7 @@ export class Menu {
     bus.emit('ui:confirm');
     if (a === 'resume') this.h.onResume && this.h.onResume();
     else if (a === 'restart') this.h.onRestart && this.h.onRestart();
+    else if (a === 'settings') this.showSettings('pause');
     else if (a === 'quit') this.h.onQuit && this.h.onQuit();
   }
 
@@ -478,19 +587,21 @@ export class Menu {
         if (up) {
           if (this.optIndex === 0) { this.zone = 'grid'; } else this.optIndex--;
           bus.emit('ui:move'); this._refreshFocus();
-        } else if (down) { this.optIndex = Math.min(2, this.optIndex + 1); bus.emit('ui:move'); this._refreshFocus(); }
+        } else if (down) { this.optIndex = Math.min(3, this.optIndex + 1); bus.emit('ui:move'); this._refreshFocus(); }
         else if (left) {
-          if (this.optIndex === 2) { this.zone = 'grid'; bus.emit('ui:move'); this._refreshFocus(); } else this._changeOpt(-1);
-        } else if (right) { if (this.optIndex < 2) this._changeOpt(1); }
-        else if (isEnter && !e.repeat) { if (this.optIndex === 2) this._start(); else this._changeOpt(1); }
+          if (this.optIndex === 3) { this.zone = 'grid'; bus.emit('ui:move'); this._refreshFocus(); } else this._changeOpt(-1);
+        } else if (right) { if (this.optIndex < 3) this._changeOpt(1); }
+        else if (isEnter && !e.repeat) { if (this.optIndex === 3) this._start(); else this._changeOpt(1); }
       }
       return;
     }
     if (this.screen === 'pause') {
-      if (c === 'ArrowUp' || c === 'KeyW') { this.pauseIndex = (this.pauseIndex + 2) % 3; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
-      else if (c === 'ArrowDown' || c === 'KeyS') { this.pauseIndex = (this.pauseIndex + 1) % 3; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
+      if (c === 'ArrowUp' || c === 'KeyW') { this.pauseIndex = (this.pauseIndex + this.pauseBtns.length - 1) % this.pauseBtns.length; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
+      else if (c === 'ArrowDown' || c === 'KeyS') { this.pauseIndex = (this.pauseIndex + 1) % this.pauseBtns.length; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
       else if (isEnter && !e.repeat) { e.preventDefault(); this._pauseAct(this.pauseBtns[this.pauseIndex].dataset.a); }
+      return;
     }
+    if (this.screen === 'settings' && (c === 'Escape' || c === 'Backspace')) { e.preventDefault(); this.closeSettings(); }
   }
 
   /** Poll gamepads; translate to synthetic key presses for menus (and Start -> Escape for pause). */
@@ -507,7 +618,7 @@ export class Menu {
       a: b(0), b: b(1), start: b(9),
     };
     const prev = this._pad.prev;
-    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'pause' || gameState === 'results';
+    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'pause' || this.screen === 'settings' || gameState === 'results';
     const fire = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true }));
     if (inMenu) {
       const dirs = [['up', 'ArrowUp'], ['down', 'ArrowDown'], ['left', 'ArrowLeft'], ['right', 'ArrowRight']];
@@ -531,6 +642,6 @@ export class Menu {
     this._stopPromptAnimation();
     if (this._backgroundTween) this._backgroundTween.kill();
     window.removeEventListener('keydown', this._onKey);
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.loadingEl]) s.remove();
+    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.loadingEl]) s.remove();
   }
 }

@@ -179,10 +179,12 @@ export class AudioEngine {
     on('ui:move', () => this.uiClick(0));
     on('ui:confirm', () => this.uiClick(1));
     on('ui:back', () => this.uiClick(2));
+    on('input:hornStart', () => this.hornStart());
+    on('input:hornStop', () => this.hornStop());
   }
 
   // ------------------------------------------------------------------ public controls
-  setGameplayActive(on) { this.gameplay = !!on; if (!on) { this._rouletteActive = false; this.tempoScale = 1; } }
+  setGameplayActive(on) { this.gameplay = !!on; if (!on) { this._rouletteActive = false; this.tempoScale = 1; this.hornStop(); } }
   setPaused(p) {
     this.paused = !!p;
     if (this.musicGain && this.ctx) this.musicGain.gain.setTargetAtTime(p ? 0.14 : 0.42, this.ctx.currentTime, 0.1);
@@ -303,6 +305,45 @@ export class AudioEngine {
       const o = this._osc('triangle', 620, t, 0.12, 0.07);
       o.o.frequency.exponentialRampToValueAtTime(310, t + 0.12);
     }
+  }
+  hornStart() {
+    if (!this.ctx || this._hornNodes) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.setValueAtTime(720, t); filter.Q.value = 1.1;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16, t + 0.055);
+    filter.connect(gain); gain.connect(this.sfxGain);
+    const tones = [
+      { type: 'sawtooth', frequency: 370, level: 0.58, detune: -4 },
+      { type: 'sawtooth', frequency: 466, level: 0.44, detune: 5 },
+      { type: 'triangle', frequency: 740, level: 0.16, detune: 0 },
+    ].map((tone) => {
+      const oscillator = ctx.createOscillator();
+      oscillator.type = tone.type;
+      oscillator.frequency.value = tone.frequency;
+      oscillator.detune.value = tone.detune;
+      const level = ctx.createGain(); level.gain.value = tone.level;
+      oscillator.connect(level); level.connect(filter); oscillator.start(t);
+      return oscillator;
+    });
+    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.4;
+    const lfoGain = ctx.createGain(); lfoGain.gain.value = 3.5;
+    lfo.connect(lfoGain);
+    for (const oscillator of tones) lfoGain.connect(oscillator.detune);
+    lfo.start(t);
+    this._hornNodes = { tones, lfo, filter, gain };
+  }
+  hornStop() {
+    if (!this.ctx || !this._hornNodes) return;
+    const nodes = this._hornNodes;
+    this._hornNodes = null;
+    const t = this.ctx.currentTime;
+    nodes.gain.gain.cancelScheduledValues(t);
+    nodes.gain.gain.setValueAtTime(Math.max(0.0001, nodes.gain.gain.value), t);
+    nodes.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    for (const oscillator of [...nodes.tones, nodes.lfo]) oscillator.stop(t + 0.14);
   }
   chime() {
     const t = this.ctx.currentTime;
