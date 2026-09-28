@@ -320,12 +320,6 @@ export class Menu {
     display.textContent = '0%';
     bar.style.width = '0%';
     progress.setAttribute('aria-valuenow', '0');
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      display.textContent = '100%';
-      bar.style.width = '100%';
-      progress.setAttribute('aria-valuenow', '100');
-      return;
-    }
     this._loadingTween = gsap.to(counter, {
       val: 100,
       duration: 2.5,
