@@ -1,7 +1,7 @@
 # Neon Rift Racers
 
 <p align="center">
-  <img src="docs/screenshots/title.jpg" alt="Neon Rift Racers title screen" width="900" />
+  <img src="docs/screenshots/title.png" alt="Neon Rift Racers title screen" width="900" />
 </p>
 
 <p align="center">
@@ -24,13 +24,19 @@ The game runs directly in a modern desktop or mobile browser. Its vehicles, envi
 
 ## Screenshots
 
-| Racing | Pilot selection |
-| --- | --- |
-| ![Race at Nova Harbor](docs/screenshots/race.jpg) | ![Pilot selection](docs/screenshots/character-select.jpg) |
+### Choose your pilot
 
-| Tactical abilities | Results |
+![Neon Rift Racers pilot selection](docs/screenshots/pilot-selection.png)
+
+### Race through Nova Harbor
+
+| Starting grid | Live racing |
 | --- | --- |
-| ![Ability gameplay](docs/screenshots/items.jpg) | ![Race results](docs/screenshots/results.jpg) |
+| ![Race countdown at the Nova Harbor starting grid](docs/screenshots/race-start.png) | ![Live race through Nova Harbor](docs/screenshots/race.png) |
+
+### Stay in control
+
+![Neon Rift Racers pause menu and control reference](docs/screenshots/pause-menu.png)
 
 ## Features
 
