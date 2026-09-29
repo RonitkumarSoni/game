@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,13 @@ if (!assetPaths.some((path) => path.endsWith('.js')) || !assetPaths.some((path) 
   throw new Error('Built JavaScript or CSS reference missing from index.html');
 }
 for (const path of assetPaths) if (!existsSync(join(dist, path))) throw new Error(`Missing referenced asset: ${path}`);
+// The legacy game loads these on demand. Missing chunks break portraits and races in production.
+const chunks = readdirSync(join(dist, 'assets'));
+for (const moduleName of ['track', 'kart', 'ai', 'input', 'items', 'effects', 'models', 'camera']) {
+  if (!chunks.some((file) => file.startsWith(`${moduleName}-`) && file.endsWith('.js'))) {
+    throw new Error(`Missing production game module: ${moduleName}`);
+  }
+}
 const worker = readFileSync(join(dist, 'sw.js'), 'utf8');
 if (!worker.includes('index.html') || !assetPaths.every((path) => worker.includes(path))) {
   throw new Error('Offline worker is missing a built asset');

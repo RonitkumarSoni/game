@@ -86,12 +86,15 @@ window.addEventListener('resize', onResize);
 // ---------------------------------------------------------------------------------------------
 const mods = {};
 async function loadModules() {
-  const specs = {
-    track: './track.js', kart: './kart.js', ai: './ai.js', input: './input.js',
-    items: './items.js', effects: './effects.js', models: './models.js', camera: './camera.js',
+  // Literal import paths let Vite emit these modules as production chunks.
+  const loaders = {
+    track: () => import('./track.js'), kart: () => import('./kart.js'),
+    ai: () => import('./ai.js'), input: () => import('./input.js'),
+    items: () => import('./items.js'), effects: () => import('./effects.js'),
+    models: () => import('./models.js'), camera: () => import('./camera.js'),
   };
-  await Promise.all(Object.entries(specs).map(async ([k, p]) => {
-    try { mods[k] = await import(p); } catch (e) { console.error(`[main] failed to load ${p}`, e); }
+  await Promise.all(Object.entries(loaders).map(async ([name, load]) => {
+    try { mods[name] = await load(); } catch (error) { console.error(`[main] failed to load ${name}`, error); }
   }));
 }
 
