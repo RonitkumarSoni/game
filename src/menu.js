@@ -2,11 +2,15 @@
 import { bus } from './events.js';
 import { CHARACTERS, VEHICLES, GAME_TITLE } from './config.js';
 import { gsap } from 'gsap';
+import { ACHIEVEMENTS } from './profile.js';
+import { careerState } from './career.js';
+import { TRACKS } from './track-data.js';
 
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
 const DIFFS = ['easy', 'normal', 'hard'];
 const DIFF_LABEL = { easy: 'NOVA · EASY', normal: 'RIFT · NORMAL', hard: 'APEX · HARD' };
 const LAPS = [1, 3, 5];
+const MODES = ['race', 'time-trial', 'grand-prix', 'elimination', 'checkpoint-rush'];
 const STAT_KEYS = [['speed', 'SPEED', 'SPD'], ['accel', 'ACCEL', 'ACC'], ['handling', 'HANDLING', 'HDL'], ['weight', 'WEIGHT', 'WGT']];
 
 function el(tag, cls, parent, html) {
@@ -26,6 +30,8 @@ const CONTROLS_HTML = `
   <div class="ctl"><span class="kc">E</span><span class="kc">X</span><span class="kc wide">L-SHIFT</span> Use ability</div>
   <div class="ctl"><span class="kc">C</span> Look back</div>
   <div class="ctl"><span class="kc wide">ESC</span><span class="kc">P</span> Pause</div>
+  <div class="ctl"><span class="kc">R</span> Quick restart</div>
+  <div class="ctl"><span class="kc">G</span> Toggle ghost (Time Trial)</div>
   <div class="ctl"><span class="kc">M</span> Mute</div>`;
 
 export class Menu {
@@ -37,7 +43,9 @@ export class Menu {
     this.charIndex = 0;
     this.diffIndex = 1;
     this.lapsIndex = 1;
+    this.modeIndex = 0;
     this.vehicleIndex = 0;
+    this.trackIndex = 0;
     this.zone = 'grid';
     this.optIndex = 0;
     this.pauseIndex = 0;
@@ -53,14 +61,16 @@ export class Menu {
     this._promptDirection = 1;
     this._pad = { prev: {}, repeatT: 0, dir: null };
     this.gameState = 'title';
-    this.userSettings = { volume: 80, graphics: 'high', steerSensitivity: 100, cameraShake: true, cameraView: 'chase' };
+    this.userSettings = { volume: 80, graphics: 'high', steerSensitivity: 100, gamepadDeadzone: 18, steeringAssist: false, touchLayout: 'right', hudScale: 100, reducedMotion: false, safeFlashes: false, autoAccelerate: false, highContrast: false, colorblindMarkers: false, cameraShake: true, cameraView: 'chase' };
     this._settingsReturn = 'title';
     try {
       const s = JSON.parse(localStorage.getItem('nrr-settings') || '{}');
       if (s.charIndex >= 0 && s.charIndex < CHARACTERS.length) this.charIndex = s.charIndex;
       if (s.diffIndex >= 0 && s.diffIndex < DIFFS.length) this.diffIndex = s.diffIndex;
       if (s.lapsIndex >= 0 && s.lapsIndex < LAPS.length) this.lapsIndex = s.lapsIndex;
+      if (s.modeIndex >= 0 && s.modeIndex < MODES.length) this.modeIndex = s.modeIndex;
       if (s.vehicleIndex >= 0 && s.vehicleIndex < VEHICLES.length) this.vehicleIndex = s.vehicleIndex;
+      if (s.trackIndex >= 0 && s.trackIndex < TRACKS.length) this.trackIndex = s.trackIndex;
       const u = JSON.parse(localStorage.getItem('nrr-player-settings') || '{}');
       this.userSettings = { ...this.userSettings, ...u };
     } catch (e) { /* storage unavailable */ }
@@ -69,6 +79,8 @@ export class Menu {
     this._buildSelect();
     this._buildPause();
     this._buildSettings();
+    this._buildProfile();
+    this._buildCareer();
     this._buildLoading();
     this._initAmbientBackgroundMotion();
 
@@ -117,8 +129,12 @@ export class Menu {
         <span>© 2026 Neon Rift Racers · Break the track. Rule the rift.</span>
         <span class="kc">M</span> mute
       </div>
+      <button class="title-career" type="button">CAREER</button>
+      <button class="title-profile" type="button">PROFILE</button>
       <button class="title-settings" type="button">SETTINGS</button>`;
     t.querySelector('.title-settings').addEventListener('click', (e) => { e.stopPropagation(); this.showSettings('title'); });
+    t.querySelector('.title-profile').addEventListener('click', (e) => { e.stopPropagation(); this.showProfile(this.h.getProfile?.()); });
+    t.querySelector('.title-career').addEventListener('click', (e) => { e.stopPropagation(); this.showCareer(this.h.getProfile?.()); });
     t.addEventListener('click', () => { if (this.screen === 'title') this._toSelect(); });
   }
 
@@ -145,7 +161,9 @@ export class Menu {
             <div class="opt" data-i="0"><span class="opt-lbl">VEHICLE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
             <div class="opt" data-i="1"><span class="opt-lbl">CLASS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
             <div class="opt" data-i="2"><span class="opt-lbl">LAPS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <button class="btn primary race-btn" data-i="3">RACE!</button>
+            <div class="opt" data-i="3"><span class="opt-lbl">MODE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+            <div class="opt" data-i="4"><span class="opt-lbl">TRACK</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+            <button class="btn primary race-btn" data-i="5">RACE!</button>
           </div>
         </div>
       </div>
@@ -188,7 +206,7 @@ export class Menu {
     this.optEls = [...s.querySelectorAll('.opts [data-i]')];
     this.optEls.forEach((o, i) => {
       o.addEventListener('mouseenter', () => { if (this.screen === 'select') { this.zone = 'opts'; this.optIndex = i; this._refreshFocus(); } });
-      if (i < 3) {
+      if (i < 5) {
         o.querySelector('.l').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(-1); });
         o.querySelector('.r').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
         o.querySelector('.opt-val').addEventListener('click', () => { this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
@@ -270,9 +288,18 @@ export class Menu {
         <div class="settings-title">SETTINGS</div>
         <label class="setting-row"><span><b>MASTER VOLUME</b><small>Music, engine and effects</small></span><input data-setting="volume" type="range" min="0" max="100" step="1"><output></output></label>
         <label class="setting-row"><span><b>STEERING RESPONSE</b><small>Keyboard, touch, wheel and tilt</small></span><input data-setting="steerSensitivity" type="range" min="60" max="140" step="5"><output></output></label>
+        <label class="setting-row"><span><b>GAMEPAD DEAD ZONE</b><small>Ignore small stick drift</small></span><input data-setting="gamepadDeadzone" type="range" min="5" max="35" step="1"><output></output></label>
+        <label class="setting-row toggle-row"><span><b>STEERING ASSIST</b><small>Gentle help near track edges</small></span><input data-setting="steeringAssist" type="checkbox"><i></i></label>
+        <label class="setting-row"><span><b>TOUCH LAYOUT</b><small>Choose steering hand</small></span><select data-setting="touchLayout"><option value="right">RIGHT STEERING</option><option value="left">LEFT STEERING</option></select></label>
+        <label class="setting-row toggle-row"><span><b>AUTO ACCELERATE</b><small>Touch devices accelerate unless braking</small></span><input data-setting="autoAccelerate" type="checkbox"><i></i></label>
+        <label class="setting-row"><span><b>HUD SIZE</b><small>Lap, map, speed and position</small></span><input data-setting="hudScale" type="range" min="80" max="120" step="5"><output></output></label>
         <label class="setting-row"><span><b>GRAPHICS QUALITY</b><small>Resolution, shadows and bloom</small></span><select data-setting="graphics"><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label>
         <label class="setting-row"><span><b>DEFAULT CAMERA</b><small>Starting race viewpoint</small></span><select data-setting="cameraView"><option value="chase">CHASE</option><option value="hood">FRONT</option><option value="wide">WIDE</option></select></label>
         <label class="setting-row toggle-row"><span><b>CAMERA SHAKE</b><small>Impacts, boosts and landings</small></span><input data-setting="cameraShake" type="checkbox"><i></i></label>
+        <label class="setting-row toggle-row"><span><b>REDUCED MOTION</b><small>Calmer HUD effects and camera</small></span><input data-setting="reducedMotion" type="checkbox"><i></i></label>
+        <label class="setting-row toggle-row"><span><b>SAFE FLASHES</b><small>Dim impact and lightning flashes</small></span><input data-setting="safeFlashes" type="checkbox"><i></i></label>
+        <label class="setting-row toggle-row"><span><b>HIGH CONTRAST</b><small>Clearer panel edges and labels</small></span><input data-setting="highContrast" type="checkbox"><i></i></label>
+        <label class="setting-row toggle-row"><span><b>MAP POSITION MARKERS</b><small>Identify rivals by rank, not color</small></span><input data-setting="colorblindMarkers" type="checkbox"><i></i></label>
         <div class="settings-note">Tilt steering recalibrates when TILT is enabled during a race.</div>
         <button class="settings-replay" type="button">REPLAY ROOKIE TUTORIAL</button>
         <button class="btn settings-done" type="button">SAVE & RETURN</button>
@@ -283,7 +310,7 @@ export class Menu {
       const value = input.type === 'checkbox' ? input.checked : input.type === 'range' ? Number(input.value) : input.value;
       this.userSettings[key] = value;
       const out = input.parentElement.querySelector('output');
-      if (out) out.textContent = key === 'volume' || key === 'steerSensitivity' ? `${value}%` : String(value).toUpperCase();
+      if (out) out.textContent = input.type === 'range' ? `${value}%` : String(value).toUpperCase();
       try { localStorage.setItem('nrr-player-settings', JSON.stringify(this.userSettings)); } catch (e) { /* unavailable */ }
       this.h.onSettings && this.h.onSettings({ ...this.userSettings });
     };
@@ -312,11 +339,90 @@ export class Menu {
     }
   }
 
+  _buildProfile() {
+    const screen = this.profileEl = el('div', 'screen profile-screen', this.uiRoot);
+    screen.innerHTML = `<div class="profile-panel"><button class="profile-back" type="button">← BACK</button><div class="settings-eyebrow">RACER DOSSIER</div><h2>YOUR PROFILE</h2><label class="profile-title-picker">EQUIPPED TITLE <select></select></label><div class="profile-stats"></div><h3>ACHIEVEMENTS</h3><div class="profile-achievements"></div><h3>RECENT EVENTS</h3><div class="profile-history"></div></div>`;
+    screen.querySelector('.profile-back').addEventListener('click', () => { bus.emit('ui:back'); this.showTitle(); });
+    screen.querySelector('.profile-title-picker select').addEventListener('change', (event) => {
+      this.h.onEquipTitle?.(event.target.value);
+    });
+  }
+
+  _buildCareer() {
+    const screen = this.careerEl = el('div', 'screen career-screen', this.uiRoot);
+    screen.innerHTML = `<div class="profile-panel"><button class="profile-back" type="button">← BACK</button><div class="settings-eyebrow">NOVA HARBOR // CAREER</div><h2>CAREER MISSIONS</h2><p>Complete milestones to earn medals. Your current pilot and vehicle will be used.</p><div class="career-events"></div></div>`;
+    screen.querySelector('.profile-back').addEventListener('click', () => { bus.emit('ui:back'); this.showTitle(); });
+  }
+
+  showCareer(profile) {
+    if (!profile) return;
+    this.screen = 'career';
+    const list = this.careerEl.querySelector('.career-events');
+    list.textContent = '';
+    for (const event of careerState(profile)) {
+      const card = el('div', `career-event${event.completed ? ' complete' : ''}${event.unlocked ? '' : ' locked'}`, list);
+      const copy = el('div', 'career-copy', card);
+      el('strong', '', copy).textContent = event.name;
+      el('span', '', copy).textContent = event.goal;
+      el('small', '', copy).textContent = event.completed ? `${event.medal} MEDAL EARNED` : event.unlocked ? `${event.medal} MEDAL` : 'LOCKED · COMPLETE EARLIER MISSIONS';
+      const button = el('button', 'career-launch', card);
+      button.type = 'button';
+      button.disabled = !event.unlocked;
+      button.textContent = event.completed ? 'REPLAY' : event.unlocked ? 'START' : 'LOCKED';
+      if (event.unlocked) button.addEventListener('click', () => { bus.emit('ui:confirm'); this.h.onStart?.({ ...this.settings, mode: event.mode }); });
+    }
+    this._showOnly(this.careerEl);
+  }
+
+  showProfile(profile) {
+    if (!profile) return;
+    this.screen = 'profile';
+    const titleSelect = this.profileEl.querySelector('.profile-title-picker select');
+    titleSelect.textContent = '';
+    for (const title of profile.titles) {
+      const option = document.createElement('option');
+      option.value = title;
+      option.textContent = title;
+      titleSelect.appendChild(option);
+    }
+    titleSelect.value = profile.selectedTitle;
+    const stats = this.profileEl.querySelector('.profile-stats');
+    stats.textContent = '';
+    const fields = [
+      ['RACES', profile.stats.races], ['WINS', profile.stats.wins], ['PODIUMS', profile.stats.podiums],
+      ['TRIAL RUNS', profile.stats.trialRuns], ['CUPS', profile.stats.cupEntries], ['CUP WINS', profile.stats.cupWins],
+      ['SURVIVAL WINS', profile.stats.eliminationWins], ['RUSH CLEARS', profile.stats.checkpointClears],
+      ['GOLD', profile.medals.gold], ['SILVER', profile.medals.silver], ['BRONZE', profile.medals.bronze],
+    ];
+    for (const [label, value] of fields) {
+      const tile = el('div', 'profile-stat', stats);
+      el('strong', '', tile).textContent = value;
+      el('span', '', tile).textContent = label;
+    }
+    const achievements = this.profileEl.querySelector('.profile-achievements');
+    achievements.textContent = '';
+    for (const [id, definition] of Object.entries(ACHIEVEMENTS)) {
+      const unlocked = profile.achievements.includes(id);
+      const tile = el('div', `profile-achievement${unlocked ? ' unlocked' : ''}`, achievements);
+      el('strong', '', tile).textContent = unlocked ? definition.name : 'LOCKED';
+      el('span', '', tile).textContent = definition.description;
+    }
+    const history = this.profileEl.querySelector('.profile-history');
+    history.textContent = '';
+    if (!profile.history.length) el('div', 'profile-empty', history).textContent = 'Finish an event to start your racing history.';
+    for (const event of profile.history.slice(0, 8)) {
+      const row = el('div', 'profile-event', history);
+      el('strong', '', row).textContent = String(event.type || 'EVENT');
+      el('span', '', row).textContent = `${event.place ? `${event.place}${event.place === 1 ? 'st' : event.place === 2 ? 'nd' : event.place === 3 ? 'rd' : 'th'} · ` : ''}${Number.isFinite(event.time) ? `${event.time.toFixed(2)}s` : `${event.points || 0} pts`}`;
+    }
+    this._showOnly(this.profileEl);
+  }
+
   _showOnly(elm) {
     if (elm !== this.loadingEl) this._stopLoadingSequence();
     if (elm !== this.titleEl) this._stopTitleAnimation();
     if (elm !== this.titleEl) this._stopPromptAnimation();
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.loadingEl]) s.classList.toggle('active', s === elm);
+    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.classList.toggle('active', s === elm);
   }
   showTitle() {
     this.screen = 'title';
@@ -461,7 +567,7 @@ export class Menu {
     this._loadingIntroTimeline = null;
   }
   get settings() {
-    return { characterIndex: this.charIndex, vehicleIndex: this.vehicleIndex, difficulty: DIFFS[this.diffIndex], laps: LAPS[this.lapsIndex] };
+    return { characterIndex: this.charIndex, vehicleIndex: this.vehicleIndex, difficulty: DIFFS[this.diffIndex], laps: LAPS[this.lapsIndex], mode: MODES[this.modeIndex], trackId: TRACKS[this.trackIndex].id };
   }
 
   _toSelect() { bus.emit('ui:confirm'); this.showSelect(); this.h.onScreen && this.h.onScreen('select'); }
@@ -477,7 +583,7 @@ export class Menu {
   }
   _confirmChar() {
     bus.emit('ui:confirm');
-    this.zone = 'opts'; this.optIndex = 3;
+    this.zone = 'opts'; this.optIndex = 5;
     const c = this.cards[this.charIndex].card;
     c.classList.remove('picked'); void c.offsetWidth; c.classList.add('picked');
     this._refreshFocus();
@@ -518,7 +624,12 @@ export class Menu {
     if (!this.optEls) return;
     this.optEls[0].querySelector('.opt-val').textContent = VEHICLES[this.vehicleIndex].name.toUpperCase();
     this.optEls[1].querySelector('.opt-val').textContent = DIFF_LABEL[DIFFS[this.diffIndex]];
-    this.optEls[2].querySelector('.opt-val').textContent = `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
+    this.optEls[2].querySelector('.opt-lbl').textContent = this.modeIndex === 3 ? 'GOAL' : this.modeIndex === 4 ? 'GATES' : 'LAPS';
+    this.optEls[2].querySelector('.opt-val').textContent = this.modeIndex === 3 ? 'LAST SURVIVOR' : this.modeIndex === 4 ? `${LAPS[this.lapsIndex] * 4} GATES` : `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
+    this.optEls[2].classList.toggle('locked', this.modeIndex === 3);
+    this.optEls[3].querySelector('.opt-val').textContent = ['QUICK RACE', 'TIME TRIAL', 'GRAND PRIX', 'ELIMINATION', 'CHECKPOINT RUSH'][this.modeIndex];
+    this.optEls[4].querySelector('.opt-val').textContent = TRACKS[this.trackIndex].name.toUpperCase();
+    this.optEls[5].textContent = ['RACE!', 'START TRIAL', 'START CUP', 'SURVIVE!', 'START RUSH'][this.modeIndex];
   }
   _refreshFocus() {
     this.cards.forEach((c, j) => c.card.classList.toggle('focus', this.zone === 'grid' && j === this.charIndex));
@@ -527,7 +638,9 @@ export class Menu {
   _changeOpt(d) {
     if (this.optIndex === 0) { this.vehicleIndex = (this.vehicleIndex + d + VEHICLES.length) % VEHICLES.length; this._refreshPreview(); }
     else if (this.optIndex === 1) this.diffIndex = (this.diffIndex + d + DIFFS.length) % DIFFS.length;
-    else if (this.optIndex === 2) this.lapsIndex = (this.lapsIndex + d + LAPS.length) % LAPS.length;
+    else if (this.optIndex === 2) { if (this.modeIndex === 3) return; this.lapsIndex = (this.lapsIndex + d + LAPS.length) % LAPS.length; }
+    else if (this.optIndex === 3) this.modeIndex = (this.modeIndex + d + MODES.length) % MODES.length;
+    else if (this.optIndex === 4) this.trackIndex = (this.trackIndex + d + TRACKS.length) % TRACKS.length;
     else return;
     bus.emit('ui:move');
     this._refreshOpts(); this._refreshFocus();
@@ -536,7 +649,7 @@ export class Menu {
   }
   _start() {
     if (this.screen !== 'select') return;
-    try { localStorage.setItem('nrr-settings', JSON.stringify({ charIndex: this.charIndex, vehicleIndex: this.vehicleIndex, diffIndex: this.diffIndex, lapsIndex: this.lapsIndex })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('nrr-settings', JSON.stringify({ charIndex: this.charIndex, vehicleIndex: this.vehicleIndex, diffIndex: this.diffIndex, lapsIndex: this.lapsIndex, modeIndex: this.modeIndex, trackIndex: this.trackIndex })); } catch (e) { /* ignore */ }
     bus.emit('ui:confirm');
     this.h.onStart && this.h.onStart(this.settings);
   }
@@ -587,11 +700,11 @@ export class Menu {
         if (up) {
           if (this.optIndex === 0) { this.zone = 'grid'; } else this.optIndex--;
           bus.emit('ui:move'); this._refreshFocus();
-        } else if (down) { this.optIndex = Math.min(3, this.optIndex + 1); bus.emit('ui:move'); this._refreshFocus(); }
+        } else if (down) { this.optIndex = Math.min(5, this.optIndex + 1); bus.emit('ui:move'); this._refreshFocus(); }
         else if (left) {
-          if (this.optIndex === 3) { this.zone = 'grid'; bus.emit('ui:move'); this._refreshFocus(); } else this._changeOpt(-1);
-        } else if (right) { if (this.optIndex < 3) this._changeOpt(1); }
-        else if (isEnter && !e.repeat) { if (this.optIndex === 3) this._start(); else this._changeOpt(1); }
+          if (this.optIndex === 5) { this.zone = 'grid'; bus.emit('ui:move'); this._refreshFocus(); } else this._changeOpt(-1);
+        } else if (right) { if (this.optIndex < 5) this._changeOpt(1); }
+        else if (isEnter && !e.repeat) { if (this.optIndex === 5) this._start(); else this._changeOpt(1); }
       }
       return;
     }
@@ -599,6 +712,10 @@ export class Menu {
       if (c === 'ArrowUp' || c === 'KeyW') { this.pauseIndex = (this.pauseIndex + this.pauseBtns.length - 1) % this.pauseBtns.length; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
       else if (c === 'ArrowDown' || c === 'KeyS') { this.pauseIndex = (this.pauseIndex + 1) % this.pauseBtns.length; this._refreshPause(); bus.emit('ui:move'); e.preventDefault(); }
       else if (isEnter && !e.repeat) { e.preventDefault(); this._pauseAct(this.pauseBtns[this.pauseIndex].dataset.a); }
+      return;
+    }
+    if (this.screen === 'profile' || this.screen === 'career') {
+      if (c === 'Escape' || c === 'Backspace') { e.preventDefault(); this.showTitle(); }
       return;
     }
     if (this.screen === 'settings' && (c === 'Escape' || c === 'Backspace')) { e.preventDefault(); this.closeSettings(); }
@@ -618,7 +735,7 @@ export class Menu {
       a: b(0), b: b(1), start: b(9),
     };
     const prev = this._pad.prev;
-    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'pause' || this.screen === 'settings' || gameState === 'results';
+    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'pause' || this.screen === 'settings' || this.screen === 'profile' || this.screen === 'career' || gameState === 'results';
     const fire = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true }));
     if (inMenu) {
       const dirs = [['up', 'ArrowUp'], ['down', 'ArrowDown'], ['left', 'ArrowLeft'], ['right', 'ArrowRight']];
@@ -642,6 +759,6 @@ export class Menu {
     this._stopPromptAnimation();
     if (this._backgroundTween) this._backgroundTween.kill();
     window.removeEventListener('keydown', this._onKey);
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.loadingEl]) s.remove();
+    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.remove();
   }
 }

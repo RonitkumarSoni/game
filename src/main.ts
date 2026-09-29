@@ -16,6 +16,7 @@
 
 // @ts-ignore — legacy JS module, will be replaced incrementally
 import './main.js';
+import './pwa.js';
 
 // ============================================================================
 // New TypeScript core modules (being built incrementally)

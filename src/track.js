@@ -5,8 +5,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bus } from './events.js';
 import * as TX from './track-textures.js';
 import { createEnvironment } from './environment.js';
+import { selectTrack, EMBER_CONTROL_POINTS } from './track-data.js';
 
-const TRACK_NAME = 'Nova Harbor';
 const SCALE = 1.15;
 const N = 2000;                 // centerline samples
 const HALF_W = 12;              // road half width (roadWidth = 24)
@@ -65,7 +65,10 @@ function smoothCircular(arr, radius, passes = 1) {
   return src;
 }
 
-export function createTrack(scene, renderer) {
+export function createTrack(scene, renderer, trackId = 'nova-harbor') {
+  const definition = selectTrack(trackId);
+  const ember = definition.theme === 'ember';
+  const controlPoints = ember ? EMBER_CONTROL_POINTS : CP;
   const root = new THREE.Group();
   root.name = 'track';
   scene.add(root);
@@ -73,7 +76,7 @@ export function createTrack(scene, renderer) {
   const track = {};
 
   // ------------------------------------------------------------------ centerline
-  const pts = CP.map(([x, y, z]) => new THREE.Vector3(x * SCALE, y, z * SCALE));
+  const pts = controlPoints.map(([x, y, z]) => new THREE.Vector3(x * SCALE, y, z * SCALE));
   const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5);
   curve.arcLengthDivisions = 6000;
   curve.updateArcLengths();
@@ -228,9 +231,9 @@ export function createTrack(scene, renderer) {
 
   // ------------------------------------------------------------------ features
   const nearestToCP = (cpf) => {
-    const i0 = Math.floor(cpf) % CP.length, i1 = (i0 + 1) % CP.length, f = cpf - Math.floor(cpf);
-    const x = (CP[i0][0] + (CP[i1][0] - CP[i0][0]) * f) * SCALE;
-    const z = (CP[i0][2] + (CP[i1][2] - CP[i0][2]) * f) * SCALE;
+    const i0 = Math.floor(cpf) % controlPoints.length, i1 = (i0 + 1) % controlPoints.length, f = cpf - Math.floor(cpf);
+    const x = (controlPoints[i0][0] + (controlPoints[i1][0] - controlPoints[i0][0]) * f) * SCALE;
+    const z = (controlPoints[i0][2] + (controlPoints[i1][2] - controlPoints[i0][2]) * f) * SCALE;
     return nearestGrid(x, z);
   };
 
@@ -442,6 +445,7 @@ export function createTrack(scene, renderer) {
 
   // Offroad bands (grass) + bridge deck edge (concrete)
   const grassMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeGrassTexture(), roughness: 1 }));
+  if (ember) grassMat.color.setHex(0x62434c);
   grassMat.map.repeat.set(1, 1);
   const concreteMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeConcreteTexture(), roughness: 0.9 }));
   const bandGeos = [], deckGeos = [];
@@ -649,7 +653,7 @@ export function createTrack(scene, renderer) {
       p.position.set(x, 6, 0); p.castShadow = true; g.add(p);
     }
     const span = xL - xR + 2.5;
-    const bannerTex = TX.makeBannerTexture('NOVA HARBOR // NRR');
+    const bannerTex = TX.makeBannerTexture(`${definition.name.toUpperCase()} // NRR`);
     disposables.push(bannerTex);
     const beamSide = mat(new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: 0.5 }));
     const bannerMat = mat(new THREE.MeshStandardMaterial({ map: bannerTex, roughness: 0.5, emissive: 0x220000 }));
@@ -700,7 +704,7 @@ export function createTrack(scene, renderer) {
   const layout = {
     N, ds, length, px, py, pz, rx, rz, tx, tz, head, kS, wallL, wallR, bridge, halfWidth: HALF_W,
     nearest: (x, z, noFallback = false) => { const i = nearestGrid(x, z, noFallback); return { i, d2: _nd2 }; },
-    lake: LAKE, waterLevel: WATER_LEVEL,
+    lake: LAKE, waterLevel: WATER_LEVEL, theme: definition.theme,
     bounds: { minX, maxX, minZ, maxZ },
     boostPads, ramps, startPositions,
   };
@@ -708,7 +712,8 @@ export function createTrack(scene, renderer) {
 
   // ------------------------------------------------------------------ Track object
   Object.assign(track, {
-    name: TRACK_NAME,
+    id: definition.id,
+    name: definition.name,
     curve,
     length,
     roadWidth: HALF_W * 2,

@@ -61,6 +61,8 @@ export class InputController {
     this.lastDevice = 'keyboard';
     this.steer = 0;
     this.steeringSensitivity = 1;
+    this.gamepadDeadzone = STICK_DEADZONE;
+    this.autoAccelerate = false;
     this.touch = { throttle: 0, brake: 0, steer: 0, drift: false, item: false, lookBack: false };
     this.touchMode = 'buttons';
     this._wheelTurn = 0;
@@ -266,6 +268,14 @@ export class InputController {
     button.setAttribute('aria-label', `Switch to ${next.toLowerCase()} camera view`);
   }
   setSteeringSensitivity(value) { this.steeringSensitivity = Math.max(.6, Math.min(1.4, Number(value) || 1)); }
+  setGamepadDeadzone(value) { this.gamepadDeadzone = Math.max(.05, Math.min(.35, Number(value) || STICK_DEADZONE)); }
+  setTouchLayout(layout) { this.touchRoot?.classList.toggle('left-steering', layout === 'left'); }
+  setAutoAccelerate(enabled) {
+    this.autoAccelerate = !!enabled;
+    this.touchRoot?.classList.toggle('auto-accelerate', this.autoAccelerate);
+    const pedal = this.touchRoot?.querySelector('.touch-pedal.accel');
+    if (pedal) pedal.setAttribute('aria-label', this.autoAccelerate ? 'Auto acceleration on; hold for manual acceleration' : 'Accelerate');
+  }
 
   async _enableTilt() {
     if (typeof window === 'undefined' || typeof window.DeviceOrientationEvent === 'undefined') return false;
@@ -345,8 +355,8 @@ export class InputController {
       this.gpBrake = Math.max(btn(GP.B) > 0.5 ? 1 : 0, btn(GP.LT));
       const ax = pad.axes?.[0] ?? 0;
       const ay = pad.axes?.[1] ?? 0;
-      if (Math.abs(ax) > STICK_DEADZONE) {
-        this.gpSteer = Math.sign(ax) * Math.min(1, (Math.abs(ax) - STICK_DEADZONE) / (1 - STICK_DEADZONE));
+      if (Math.abs(ax) > this.gamepadDeadzone) {
+        this.gpSteer = Math.sign(ax) * Math.min(1, (Math.abs(ax) - this.gamepadDeadzone) / (1 - this.gamepadDeadzone));
       }
       if (held.left) this.gpSteer = -1;
       if (held.right) this.gpSteer = 1;
@@ -421,6 +431,9 @@ export class InputController {
     const st = this._state;
     st.throttle = Math.max(this._keyHeld('accelerate') ? 1 : 0, this.gpThrottle, this.touch.throttle ? 1 : 0);
     st.brake = Math.max(this._keyHeld('brake') ? 1 : 0, this.gpBrake, this.touch.brake ? 1 : 0);
+    // Apply auto acceleration only on touch-first devices. Braking always takes priority so
+    // releasing the brake resumes driving and holding it can still reverse the kart.
+    if (this.autoAccelerate && matchMedia('(pointer: coarse)').matches && st.brake < 0.1) st.throttle = 1;
     st.steer = Math.max(-1, Math.min(1, this.steer * this.steeringSensitivity));
     st.drift = this._keyHeld('drift') || !!this.gpHeld.drift || !!this.touch.drift;
     st.item = this.itemEdge;

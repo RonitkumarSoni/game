@@ -18,7 +18,7 @@
 
 ## About
 
-Neon Rift Racers combines responsive arcade handling, tactical abilities and a vivid low-poly world in a lightweight WebGL experience. Choose from eight pilots, master drifting and mini-turbos, and race seven AI rivals around Nova Harbor.
+Neon Rift Racers combines responsive arcade handling, tactical abilities and a vivid low-poly world in a lightweight WebGL experience. Choose from eight pilots, master drifting and mini-turbos, and race seven AI rivals across Nova Harbor and Ember Rift.
 
 The game runs directly in a modern desktop or mobile browser. Its vehicles, environments, effects and audio are generated at runtime, keeping the project portable and easy to develop locally.
 
@@ -49,6 +49,10 @@ The game runs directly in a modern desktop or mobile browser. Its vehicles, envi
 - Expandable tactical minimap and contextual ability HUD
 - Runtime-generated 3D vehicles, scenery, visual effects and Web Audio soundtrack
 - Animated neon interface powered by GSAP
+- Quick Race, solo Time Trial with a best-run ghost, and a four-round Grand Prix
+- Elimination survival races and timed Checkpoint Rush with ordered gates
+- Two selectable circuits with distinct routes and scenery: Nova Harbor and Ember Rift
+- Local racer profile with achievements, medals and starter Career missions
 
 ## Getting Started
 

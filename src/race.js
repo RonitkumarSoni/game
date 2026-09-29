@@ -201,6 +201,8 @@ export class RaceManager {
   _sortPlaces() {
     const s = this.karts.slice();
     s.sort((a, b) => {
+      if (!!a.eliminated !== !!b.eliminated) return a.eliminated ? 1 : -1;
+      if (a.eliminated && b.eliminated) return (a.eliminationRank || 8) - (b.eliminationRank || 8);
       if (a.finished && b.finished) return a.finishTime - b.finishTime;
       if (a.finished) return -1;
       if (b.finished) return 1;

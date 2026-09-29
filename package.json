@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "tsc && vite build --configLoader runner",
+    "smoke": "node scripts/smoke.mjs",
     "preview": "vite preview --configLoader runner",
     "test": "vitest run --configLoader runner",
     "test:watch": "vitest --configLoader runner",

@@ -2,6 +2,7 @@
 import { bus } from './events.js';
 import { ITEMS, CHARACTERS, ABILITY_LABELS } from './config.js';
 import { formatTime } from './race.js';
+import { GRAND_PRIX_POINTS, GRAND_PRIX_ROUNDS } from './grand-prix.js';
 
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
 export const ordinal = (n) => {
@@ -191,6 +192,10 @@ export class HUD {
     this.lapVal = this.lapEl.querySelector('.val');
     this.lapOf = this.lapEl.querySelector('.of');
     this.timerEl = el('div', 'hud-timer', this.tl, '0:00.00');
+    this.cupEl = el('div', 'hud-cup-round', this.tl);
+    this.trialBestEl = el('div', 'hud-trial-best', this.tl);
+    this.ghostDeltaEl = el('div', 'hud-ghost-delta', this.tl);
+    this.modeStatusEl = el('div', 'hud-mode-status', this.tl);
     this.splitsEl = el('div', 'hud-splits', this.tl);
 
     // top-centre item slot
@@ -290,7 +295,6 @@ export class HUD {
     on('race:lap', (d) => {
       if (d.kart && d.kart.isPlayer) {
         restartAnim(this.lapEl, 'pulse');
-        if (d.lapTime != null) { this.lapPop.textContent = formatTime(d.lapTime); restartAnim(this.lapPop, 'show'); }
       }
     });
     on('race:wrongWay', (d) => this.wrongEl.classList.toggle('show', !!d.active));
@@ -311,10 +315,15 @@ export class HUD {
   show() { this.active = true; this.root.classList.remove('hidden'); }
   hide() { this.active = false; this._toggleMap(false); document.body.classList.remove('ability-ready'); this.root.classList.add('hidden'); }
 
-  reset({ player, track, laps }) {
+  reset({ player, track, laps, mode = 'race', cupRound = 0 }) {
     this.player = player;
     this.track = track;
     this.laps = laps;
+    this.mode = mode;
+    this.cupEl.textContent = mode === 'grand-prix' ? `NOVA HARBOR CUP · ${cupRound + 1}/${GRAND_PRIX_ROUNDS.length}` : '';
+    this.root.classList.toggle('time-trial', mode === 'time-trial');
+    this.root.classList.toggle('arcade-mode', mode === 'elimination' || mode === 'checkpoint-rush');
+    this.root.classList.toggle('checkpoint-rush', mode === 'checkpoint-rush');
     this._last = {};
     this._standKey = '';
     this._standOrder = [];
@@ -325,6 +334,10 @@ export class HUD {
     this.wrongEl.classList.remove('show');
     this.finishEl.className = 'hud-finish';
     this.lapPop.className = 'hud-lappop';
+    this.ghostDeltaEl.textContent = '';
+    this.ghostDeltaEl.className = 'hud-ghost-delta';
+    this.modeStatusEl.textContent = '';
+    this.modeStatusEl.className = 'hud-mode-status';
     this.hideResults();
     this._buildMinimap(track);
   }
@@ -332,6 +345,39 @@ export class HUD {
   toast(msg) {
     this.toastEl.textContent = msg;
     restartAnim(this.toastEl, 'show');
+  }
+
+  showLapFeedback(lapTime, previousBest, improved) {
+    const delta = previousBest === null ? '' : ` · ${lapTime < previousBest ? '−' : '+'}${formatTime(Math.abs(lapTime - previousBest))} PB`;
+    this.lapPop.textContent = `LAP ${formatTime(lapTime)}${delta}`;
+    this.lapPop.classList.toggle('best', improved);
+    restartAnim(this.lapPop, 'show');
+    if (improved) this.toast(previousBest === null ? 'PERSONAL BEST SET!' : 'NEW PERSONAL BEST!');
+  }
+
+  setTrialBest(best) {
+    this.trialBestEl.textContent = this.mode === 'time-trial' ? `BEST RUN ${best ? formatTime(best) : '--:--.--'}` : '';
+  }
+
+  setGhostState(available, enabled) {
+    this.ghostDeltaEl.textContent = this.mode !== 'time-trial' ? '' : !available ? 'GHOST · SET A BEST RUN' : enabled ? 'GHOST · SYNCING' : 'GHOST · OFF (G)';
+    this.ghostDeltaEl.classList.toggle('ahead', false);
+  }
+
+  setGhostDelta(delta) {
+    if (this.mode !== 'time-trial') return;
+    if (!Number.isFinite(delta)) { this.ghostDeltaEl.textContent = 'GHOST · SYNCING'; return; }
+    this.ghostDeltaEl.textContent = `GHOST ${delta <= 0 ? '−' : '+'}${Math.abs(delta).toFixed(2)}s`;
+    this.ghostDeltaEl.classList.toggle('ahead', delta <= 0);
+  }
+
+  setArcadeStatus(arcade) {
+    if (!arcade || arcade.ended) return;
+    if (arcade.mode === 'elimination') {
+      const active = arcade.race.karts.filter((kart) => !kart.eliminated).length;
+      this.modeStatusEl.textContent = `ELIMINATION · ${active} LEFT · ${Math.ceil(arcade.timeLeft)}s`;
+    } else this.modeStatusEl.textContent = `CHECKPOINT ${arcade.gates}/${arcade.targetGates} · ${Math.ceil(arcade.timeLeft)}s`;
+    this.modeStatusEl.classList.toggle('urgent', arcade.timeLeft <= 5);
   }
 
   showCount(text, cls) {
@@ -423,6 +469,11 @@ export class HUD {
       g.fillStyle = k.character ? hex(k.character.color) : '#ccc';
       g.strokeStyle = '#111'; g.lineWidth = 4;
       g.beginPath(); g.arc(x, y, 11, 0, Math.PI * 2); g.fill(); g.stroke();
+      if (this.colorblindMarkers) {
+        g.font = 'bold 13px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.lineWidth = 3; g.strokeStyle = '#071020'; g.fillStyle = '#fff';
+        g.strokeText(String(k.place || i + 1), x, y + 1); g.fillText(String(k.place || i + 1), x, y + 1);
+      }
     }
     if (player && player.position) {
       const [x, y] = this._mp(player.position.x, player.position.z);
@@ -479,7 +530,7 @@ export class HUD {
     }
 
     // timer
-    const rt = race ? (race.phase === 'racing' || race.phase === 'done' ? (player.finished ? player.finishTime : race.raceTime) : 0) : 0;
+    const rt = race ? (race.phase === 'racing' || race.phase === 'done' || race.phase === 'mode-done' ? (player.finished ? player.finishTime : race.raceTime) : 0) : 0;
     const ts = formatTime(rt);
     if (L.ts !== ts) { L.ts = ts; this.timerEl.textContent = ts; }
 
@@ -564,6 +615,7 @@ export class HUD {
       row.chip.style.background = k.character ? hex(k.character.color) : '#888';
       row.name.textContent = k.character ? k.character.name : '?';
       row.row.classList.toggle('me', k === player);
+      row.row.classList.toggle('eliminated', !!k.eliminated);
       if (changed && this._standOrder.length) restartAnim(row.row, 'rank-change');
     }
     this._standOrder = standings.map((k) => k.index);
@@ -572,9 +624,62 @@ export class HUD {
   }
 
   // ------------------------------------------------------------------ results
-  showResults(results, { onRestart, onMenu, laps } = {}) {
+  showGrandPrix(results, cup, { onNext, onRetry, onRestartCup, onMenu, rewards = [], playerTitle = '' } = {}) {
     const R = this.resultsEl;
-    const rows = results.map((r, i) => {
+    const complete = cup.complete;
+    const standings = cup.standings();
+    const player = standings.find((row) => row.isPlayer);
+    const roundPlace = results.find((row) => row.isPlayer)?.place;
+    const lastOrder = cup.history.at(-1) || [];
+    const rows = standings.map((row) => {
+      const character = CHARACTERS.find((ch) => ch.id === row.id);
+      const earned = GRAND_PRIX_POINTS[lastOrder.indexOf(row.id)] || 0;
+      return `<div class="cup-row${row.isPlayer ? ' me' : ''}"><span class="cup-rank">${row.rank}</span><span class="cup-chip" style="background:${character ? hex(character.color) : '#8fdcff'}"></span><span class="cup-name">${character?.name || row.id}${row.isPlayer ? ' · YOU' : ''}</span><span class="cup-earned">+${earned}</span><strong>${row.points} PTS</strong></div>`;
+    }).join('');
+    const podium = complete ? `<div class="cup-podium">${standings.slice(0, 3).map((row) => {
+      const name = CHARACTERS.find((ch) => ch.id === row.id)?.name || row.id;
+      return `<div class="cup-podium-place p${row.rank}"><span>${row.rank}${ordinal(row.rank)}</span><strong>${name}</strong><small>${row.points} PTS</small></div>`;
+    }).join('')}</div>` : '';
+    R.innerHTML = `<div class="res-panel cup-panel">
+      <div class="res-title">${complete ? player?.rank === 1 ? 'CUP CHAMPION!' : 'GRAND PRIX COMPLETE' : `ROUND ${cup.roundIndex} COMPLETE`}</div>
+      <div class="res-player-title">${playerTitle}</div>
+      <div class="res-sub">NOVA HARBOR CUP · ${complete ? 'FINAL PODIUM' : `${GRAND_PRIX_ROUNDS[cup.roundIndex - 1]} · ${roundPlace}${ordinal(roundPlace)} PLACE`}</div>
+      ${podium}${rewards.length ? `<div class="res-rewards">UNLOCKED · ${rewards.join(' · ')}</div>` : ''}<div class="cup-head"><span>CHAMPIONSHIP STANDINGS</span><span>ROUND / TOTAL</span></div>
+      <div class="cup-table">${rows}</div>
+      <div class="res-buttons">${complete ? '<button class="btn primary" data-act="cup">NEW CUP</button>' : '<button class="btn primary" data-act="next">NEXT ROUND</button><button class="btn" data-act="retry">RETRY ROUND</button>'}<button class="btn" data-act="menu">MAIN MENU</button></div>
+    </div>`;
+    R.classList.remove('hidden');
+    requestAnimationFrame(() => R.classList.add('show'));
+    const btns = [...R.querySelectorAll('.btn')];
+    let sel = 0;
+    const focus = () => btns.forEach((b, i) => b.classList.toggle('focus', i === sel));
+    focus();
+    const act = (action) => {
+      this.hideResults();
+      bus.emit('ui:confirm');
+      if (action === 'next') onNext?.();
+      else if (action === 'retry') onRetry?.();
+      else if (action === 'cup') onRestartCup?.();
+      else onMenu?.();
+    };
+    btns.forEach((button, i) => {
+      button.addEventListener('click', () => act(button.dataset.act));
+      button.addEventListener('mouseenter', () => { sel = i; focus(); });
+    });
+    this._resKey = (event) => {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'].includes(event.code)) {
+        sel = (sel + (['ArrowLeft', 'ArrowUp', 'KeyA', 'KeyW'].includes(event.code) ? btns.length - 1 : 1)) % btns.length;
+        focus(); bus.emit('ui:move'); event.preventDefault();
+      } else if (['Enter', 'Space', 'NumpadEnter'].includes(event.code) && !event.repeat) {
+        event.preventDefault(); act(btns[sel].dataset.act);
+      }
+    };
+    setTimeout(() => { if (this._resKey) window.addEventListener('keydown', this._resKey); }, 400);
+  }
+
+  showResults(results, { onRestart, onMenu, laps, personalBest, recordThisRace, mode = 'race', bestTrialTime, trialRecordThisRun, rewards = [], playerTitle = '', arcade = null } = {}) {
+    const R = this.resultsEl;
+    const rows = mode === 'time-trial' || mode === 'checkpoint-rush' ? '' : results.map((r, i) => {
       const img = this.portrait(r.character);
       const col = r.character ? hex(r.character.color) : '#888';
       const pc = PLACE_COLORS[r.place - 1] || '#fff';
@@ -583,16 +688,23 @@ export class HUD {
         <div class="res-portrait" style="--kc:${col}">${img ? `<img src="${img}" alt="">` : `<span>${(r.name || '?')[0]}</span>`}</div>
         <div class="res-name">${r.name}${r.isPlayer ? ' <em>YOU</em>' : ''}</div>
         <div class="res-best">${r.bestLap ? 'BEST ' + formatTime(r.bestLap) : ''}</div>
-        <div class="res-time">${r.estimated ? '~' : ''}${formatTime(r.time)}</div>
+        <div class="res-time">${mode === 'elimination' ? r.kart.eliminated ? 'OUT' : 'ACTIVE' : `${r.estimated ? '~' : ''}${formatTime(r.time)}`}</div>
       </div>`;
     }).join('');
     const me = results.find((r) => r.isPlayer);
-    const title = me ? (me.place === 1 ? 'VICTORY!' : me.place <= 3 ? 'PODIUM FINISH!' : 'RACE COMPLETE') : 'RESULTS';
+    const title = mode === 'time-trial' ? 'TIME TRIAL COMPLETE' : mode === 'elimination' ? arcade?.success ? 'LAST RACER STANDING!' : 'ELIMINATED!' : mode === 'checkpoint-rush' ? arcade?.success ? 'RUSH CLEARED!' : 'TIME UP!' : me ? (me.place === 1 ? 'VICTORY!' : me.place <= 3 ? 'PODIUM FINISH!' : 'RACE COMPLETE') : 'RESULTS';
+    const trialLaps = mode === 'time-trial' && me?.kart?.lapTimes ? me.kart.lapTimes : [];
+    const trialSummary = mode === 'time-trial' ? `<div class="res-trial-total">${formatTime(me?.time)}</div>
+      <div class="res-record">${trialRecordThisRun ? '★ NEW BEST RUN · ' : 'BEST RUN · '}${formatTime(bestTrialTime)}</div>
+      <div class="res-trial-splits">${trialLaps.map((lap, i) => `<div><span>LAP ${i + 1}</span><strong>${formatTime(lap)}</strong></div>`).join('')}</div>` : '';
+    const arcadeSummary = mode === 'checkpoint-rush' ? `<div class="res-trial-total">${arcade?.gates || 0}/${arcade?.targetGates || 0}</div><div class="res-record">CHECKPOINTS · ${formatTime(me?.time)}</div>` : '';
     R.innerHTML = `
       <div class="res-panel">
         <div class="res-title">${title}</div>
-        <div class="res-sub">${laps || ''} LAP RACE · FINAL STANDINGS</div>
-        <div class="res-table">${rows}</div>
+        <div class="res-player-title">${playerTitle}</div>
+        <div class="res-sub">${arcade ? mode === 'elimination' ? `${me?.place}${ordinal(me?.place || 1)} PLACE · SURVIVAL RESULTS` : 'SOLO CHECKPOINT CHALLENGE' : `${laps || ''} LAP${laps === 1 ? '' : 'S'} · ${mode === 'time-trial' ? 'SOLO RUN' : 'FINAL STANDINGS'}`}</div>
+        ${mode === 'time-trial' ? trialSummary : mode === 'checkpoint-rush' ? arcadeSummary : `${!arcade && Number.isFinite(personalBest) && personalBest > 0 ? `<div class="res-record">${recordThisRace ? '★ NEW RECORD · ' : 'PERSONAL BEST · '}${formatTime(personalBest)} <span>TRACK / CLASS / VEHICLE</span></div>` : ''}<div class="res-table">${rows}</div>`}
+        ${rewards.length ? `<div class="res-rewards">UNLOCKED · ${rewards.join(' · ')}</div>` : ''}
         <div class="res-buttons">
           <button class="btn primary" data-act="restart">RACE AGAIN</button>
           <button class="btn" data-act="menu">MAIN MENU</button>

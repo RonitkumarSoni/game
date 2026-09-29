@@ -47,6 +47,7 @@ function paint(geo, color) {
 const stripUV = (g) => { g.deleteAttribute('uv'); return g; };
 
 export function createEnvironment(scene, renderer, root, L) {
+  const ember = L.theme === 'ember';
   const disposables = [];
   const keep = (x) => { disposables.push(x); return x; };
   const uniforms = { uTime: { value: 0 } };
@@ -54,10 +55,10 @@ export function createEnvironment(scene, renderer, root, L) {
 
   const SUN_DIR = new THREE.Vector3(0.32, 0.78, -0.54).normalize();
   const COL = {
-    top: new THREE.Color(0x2f7fe0),
-    horizon: new THREE.Color(0xcfe8fb),
-    bottom: new THREE.Color(0x9cc9ea),
-    sun: new THREE.Color(0xfff2cf),
+    top: new THREE.Color(ember ? 0x482441 : 0x2f7fe0),
+    horizon: new THREE.Color(ember ? 0xe28b66 : 0xcfe8fb),
+    bottom: new THREE.Color(ember ? 0x7d3949 : 0x9cc9ea),
+    sun: new THREE.Color(ember ? 0xffb66b : 0xfff2cf),
   };
 
   // island centre
@@ -108,7 +109,7 @@ export function createEnvironment(scene, renderer, root, L) {
       const pmrem = new THREE.PMREMGenerator(renderer);
       const envScene = new THREE.Scene();
       envScene.add(makeSky());
-      const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x5d9a44 }));
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: ember ? 0x563f43 : 0x5d9a44 }));
       ground.position.y = -20; envScene.add(ground);
       envRT = pmrem.fromScene(envScene, 0.02, 0.1, 2000);
       ground.geometry.dispose(); ground.material.dispose();
@@ -121,9 +122,9 @@ export function createEnvironment(scene, renderer, root, L) {
   scene.fog = new THREE.Fog(COL.horizon.clone(), 380, 1550);
 
   // ------------------------------------------------------------------ lights
-  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x7aa05a, 1.25);
+  const hemi = new THREE.HemisphereLight(ember ? 0xffb596 : 0xcfe8ff, ember ? 0x4d303c : 0x7aa05a, 1.25);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff0d8, 2.8);
+  const sun = new THREE.DirectionalLight(ember ? 0xffbd8a : 0xfff0d8, 2.8);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const SH = 75;
@@ -191,9 +192,9 @@ export function createEnvironment(scene, renderer, root, L) {
   tGeo.computeVertexNormals();
   {
     const c = new THREE.Color();
-    const sandWet = new THREE.Color(0xcdb277), sand = new THREE.Color(0xf1dca0);
-    const g1 = new THREE.Color(0x58ad37), g2 = new THREE.Color(0x8fd352), g3 = new THREE.Color(0x3f8a2e);
-    const rock = new THREE.Color(0x9c9588), under = new THREE.Color(0x8fae8f);
+    const sandWet = new THREE.Color(ember ? 0x683843 : 0xcdb277), sand = new THREE.Color(ember ? 0x8d584d : 0xf1dca0);
+    const g1 = new THREE.Color(ember ? 0x463842 : 0x58ad37), g2 = new THREE.Color(ember ? 0x79504b : 0x8fd352), g3 = new THREE.Color(ember ? 0x302b38 : 0x3f8a2e);
+    const rock = new THREE.Color(ember ? 0x5d4a52 : 0x9c9588), under = new THREE.Color(ember ? 0x402e39 : 0x8fae8f);
     const nrm = tGeo.attributes.normal;
     for (let k = 0; k < tPos.count; k++) {
       const x = tPos.getX(k), y = tPos.getY(k), z = tPos.getZ(k);
@@ -248,10 +249,10 @@ export function createEnvironment(scene, renderer, root, L) {
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: { value: 0 },
       uSunDir: { value: SUN_DIR.clone() },
-      uDeep: { value: new THREE.Color(0x0f6fb3) },
-      uShallow: { value: new THREE.Color(0x3fd6d0) },
-      uSky: { value: new THREE.Color(0xc4e6ff) },
-      uFoam: { value: new THREE.Color(0xffffff) },
+      uDeep: { value: new THREE.Color(ember ? 0xa51e27 : 0x0f6fb3) },
+      uShallow: { value: new THREE.Color(ember ? 0xff672d : 0x3fd6d0) },
+      uSky: { value: new THREE.Color(ember ? 0xffa452 : 0xc4e6ff) },
+      uFoam: { value: new THREE.Color(ember ? 0xffce58 : 0xffffff) },
       uDepth: { value: null },
       uBounds: { value: new THREE.Vector3(cx - T_SIZE / 2, cz - T_SIZE / 2, T_SIZE) },
     }]),
@@ -327,7 +328,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const rnd = mulberry(99);
     const geos = [];
     const haze = COL.horizon.clone();
-    const grass = new THREE.Color(0x4f8f45), rockC = new THREE.Color(0x8b8f9c), snow = new THREE.Color(0xf6f9ff);
+    const grass = new THREE.Color(ember ? 0x453b42 : 0x4f8f45), rockC = new THREE.Color(ember ? 0x71525a : 0x8b8f9c), snow = new THREE.Color(ember ? 0xbd7763 : 0xf6f9ff);
     const count = 22;
     for (let m = 0; m < count; m++) {
       const ang = (m / count) * Math.PI * 2 + rnd() * 0.2;
@@ -660,7 +661,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const canopyGeo = keep(mergeGeometries(canopyParts)); canopyParts.forEach((g) => g.dispose());
     const trunkMat = flat({ color: 0x8a5a36 });
     const leafMat = flat({ color: 0xffffff });
-    const greens = [0x5cb338, 0x76c442, 0x4a9e31, 0x8fd14f, 0x6bbf3d, 0xa5d65a];
+    const greens = ember ? [0x543f45, 0x745052, 0x46363f, 0x8a5a4d, 0x65434a, 0x9c6954] : [0x5cb338, 0x76c442, 0x4a9e31, 0x8fd14f, 0x6bbf3d, 0xa5d65a];
     const c = new THREE.Color();
     const allTrees = [...round];
     instanced(trunkGeo, trunkMat, allTrees);
@@ -673,7 +674,7 @@ export function createEnvironment(scene, renderer, root, L) {
       stripUV(new THREE.ConeGeometry(1.5, 2.8, 7).translate(0, 6.9, 0)),
     ];
     const pineGeo = keep(mergeGeometries(pineParts)); pineParts.forEach((g) => g.dispose());
-    const pineGreens = [0x2f7d3a, 0x3a8f44, 0x286e34, 0x44a04c];
+    const pineGreens = ember ? [0x40343d, 0x65414a, 0x3e3039, 0x81504a] : [0x2f7d3a, 0x3a8f44, 0x286e34, 0x44a04c];
     instanced(pineTrunk, trunkMat, pines);
     instanced(pineGeo, leafMat, pines, { colors: (it, k) => c.setHex(pineGreens[k % pineGreens.length]) });
     // palms: curved trunk + drooping fronds
@@ -698,24 +699,24 @@ export function createEnvironment(scene, renderer, root, L) {
     const frondGeo = keep(mergeGeometries(frondParts)); frondParts.forEach((g) => g.dispose());
     frondGeo.computeVertexNormals();
     instanced(palmTrunkGeo, flat({ color: 0xa8804f }), palms);
-    instanced(frondGeo, keep(new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })), palms, { colors: (it, k) => c.setHex([0x3fa34d, 0x52b35a, 0x359447][k % 3]) });
+    instanced(frondGeo, keep(new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide })), palms, { colors: (it, k) => c.setHex((ember ? [0x724e48, 0x965846, 0x493d45] : [0x3fa34d, 0x52b35a, 0x359447])[k % 3]) });
     // bushes
     const bushGeo = keep(stripUV(new THREE.IcosahedronGeometry(1.3, 0)));
     instanced(bushGeo, leafMat, bushes, { colors: (it, k) => c.setHex(greens[(k * 7) % greens.length]).multiplyScalar(0.85) });
     // rocks
     const rockGeo = keep(stripUV(new THREE.DodecahedronGeometry(1, 0)));
-    instanced(rockGeo, flat({ color: 0xffffff }), rocks, { colors: (it, k) => c.setHex([0x9a968d, 0xb3aea3, 0x85817a, 0xa7a197][k % 4]) });
+    instanced(rockGeo, flat({ color: 0xffffff }), rocks, { colors: (it, k) => c.setHex((ember ? [0x3d3740, 0x67464a, 0x53404b, 0x91564a] : [0x9a968d, 0xb3aea3, 0x85817a, 0xa7a197])[k % 4]) });
     // flowers (petal cluster = small octahedron) + tufts
     const flowerGeo = keep(stripUV(new THREE.OctahedronGeometry(0.26, 0).scale(1, 0.6, 1)));
-    const petal = [0xff4f6d, 0xffd84a, 0xffffff, 0xff8ad8, 0xb07cff, 0xff9a3c];
+    const petal = ember ? [0xff683c, 0xffad47, 0xffcf6a, 0xd94839, 0x8c4148, 0xf78a43] : [0xff4f6d, 0xffd84a, 0xffffff, 0xff8ad8, 0xb07cff, 0xff9a3c];
     instanced(flowerGeo, flat({ color: 0xffffff }), flowers, { cast: false, colors: (it) => c.setHex(petal[(it.c * petal.length) | 0]) });
     const tuftGeo = keep(stripUV(new THREE.ConeGeometry(0.28, 1.0, 4).translate(0, 0.45, 0)));
-    instanced(tuftGeo, flat({ color: 0xffffff }), tufts, { cast: false, colors: (it, k) => c.setHex([0x4f9e33, 0x66b83e, 0x3f8a2b][k % 3]) });
+    instanced(tuftGeo, flat({ color: 0xffffff }), tufts, { cast: false, colors: (it, k) => c.setHex((ember ? [0x593e43, 0x724949, 0x3d3540] : [0x4f9e33, 0x66b83e, 0x3f8a2b])[k % 3]) });
   }
 
   // ------------------------------------------------------------------ lighthouse + boats
   const boats = [];
-  {
+  if (!ember) {
     const dir = new THREE.Vector2(L.lake.x - cx, L.lake.z - cz).normalize();
     // walk outward from the island centre until we find the coast
     let lx = cx, lz = cz;
@@ -761,6 +762,32 @@ export function createEnvironment(scene, renderer, root, L) {
       b.scale.setScalar(1.6);
       root.add(b); boats.push(b);
     }
+  }
+
+  if (ember) {
+    const spireGeo = keep(new THREE.ConeGeometry(1, 1, 6, 1));
+    const spireMat = keep(new THREE.MeshStandardMaterial({ color: 0x49343f, roughness: 1, flatShading: true, emissive: 0x431314, emissiveIntensity: 0.3 }));
+    const rnd = mulberry(812);
+    const spires = new THREE.InstancedMesh(spireGeo, spireMat, 170);
+    const matrix = new THREE.Matrix4();
+    const pos = new THREE.Vector3(), scale = new THREE.Vector3();
+    const rot = new THREE.Quaternion();
+    for (let i = 0; i < spires.count; i++) {
+      const t = i / spires.count;
+      const k = Math.floor(t * L.N) % L.N;
+      const side = i % 2 ? -1 : 1;
+      const distance = (side > 0 ? L.wallR[k] : L.wallL[k]) + 18 + rnd() * 90;
+      const x = L.px[k] + L.rx[k] * side * distance;
+      const z = L.pz[k] + L.rz[k] * side * distance;
+      const h = 9 + rnd() * 25;
+      pos.set(x, heightAt(x, z) + h / 2, z);
+      scale.set(4 + rnd() * 5, h, 4 + rnd() * 5);
+      rot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * Math.PI * 2);
+      spires.setMatrixAt(i, matrix.compose(pos, rot, scale));
+    }
+    spires.castShadow = true;
+    spires.name = 'ember-spires';
+    root.add(spires);
   }
 
   // ------------------------------------------------------------------ API
