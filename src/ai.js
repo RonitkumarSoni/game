@@ -528,6 +528,12 @@ export class AIDriver {
       case 'lightning':
         use = (place > 1 && hold > 1.0) || hold > 14;
         break;
+      case 'phase_shield':
+        use = kart.shieldTimer <= 0 && (others.some((o) => Math.abs(o.ahead) < 20) || hold > 6);
+        break;
+      case 'shockwave':
+        use = others.some((o) => Math.abs(o.ahead) < 13 && Math.abs(o.side) < 10) || hold > 10;
+        break;
       default:
         use = hold > 3;
     }

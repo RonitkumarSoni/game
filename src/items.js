@@ -43,18 +43,19 @@ const MAX_BANANAS = 24;
 const MAX_SHELLS = 24;
 
 // Weighted distribution by place (1..8). Columns follow ITEMS order:
-// mushroom, triple_mushroom, banana, green_shell, red_shell, star, lightning, blue_shell
+// mushroom, triple_mushroom, banana, green_shell, red_shell, star, lightning,
+// blue_shell, phase_shield, shockwave
 const WEIGHTS = [
-  /*1*/ [10, 0, 45, 37, 8, 0, 0, 0],
-  /*2*/ [22, 4, 22, 24, 24, 2, 0, 2],
-  /*3*/ [24, 10, 12, 18, 30, 3, 0, 3],
-  /*4*/ [22, 18, 8, 12, 30, 6, 1, 3],
-  /*5*/ [20, 26, 5, 8, 27, 10, 2, 2],
-  /*6*/ [18, 30, 3, 5, 24, 14, 4, 2],
-  /*7*/ [12, 34, 0, 3, 20, 22, 7, 2],
-  /*8*/ [8, 36, 0, 0, 16, 28, 10, 2],
+  /*1*/ [10, 0, 39, 35, 8, 0, 0, 0, 8, 0],
+  /*2*/ [22, 4, 17, 19, 24, 2, 0, 2, 7, 3],
+  /*3*/ [24, 10, 9, 15, 30, 3, 0, 3, 4, 2],
+  /*4*/ [22, 18, 6, 9, 30, 6, 1, 3, 3, 2],
+  /*5*/ [20, 26, 3, 6, 27, 10, 2, 2, 2, 2],
+  /*6*/ [18, 30, 2, 4, 24, 14, 4, 2, 1, 3],
+  /*7*/ [12, 34, 0, 3, 18, 22, 7, 2, 0, 2],
+  /*8*/ [8, 36, 0, 0, 14, 28, 10, 2, 0, 2],
 ];
-const ITEM_ORDER = ['mushroom', 'triple_mushroom', 'banana', 'green_shell', 'red_shell', 'star', 'lightning', 'blue_shell'];
+const ITEM_ORDER = ITEMS;
 const ROULETTE_CYCLE = ITEMS && ITEMS.length ? ITEMS : ITEM_ORDER;
 
 // Model normalization targets (max dimension in meters)
@@ -418,6 +419,8 @@ export class ItemSystem {
         case 'blue_shell': this._spawnBlue(kart); break;
         case 'star': kart.startStar?.(PHYSICS.starTime); break;
         case 'lightning': this._lightning(kart); break;
+        case 'phase_shield': kart.startShield?.(8); break;
+        case 'shockwave': this._shockwave(kart); break;
         default: consumed = true;
       }
     } catch (err) {
@@ -440,12 +443,24 @@ export class ItemSystem {
     for (const k of this.karts) {
       if (!k || k === by) continue;
       if (finite(k.starTimer) > 0) continue;
-      k.applyHit?.('shrink');
+      if (!k.applyHit?.('shrink')) continue;
       // lose held item (and roulette)
       if (k.item != null || this.roulettes.has(k)) {
         k.item = null; k.itemCount = 0; this.roulettes.delete(k);
       }
       bus.emit('item:hit', { kart: k, item: 'lightning', by });
+    }
+  }
+
+  _shockwave(by) {
+    const radius = 16;
+    bus.emit('item:explode', { position: by.position.clone(), radius, kind: 'shockwave', by });
+    for (const kart of this.karts) {
+      if (!kart || kart === by || kart.finished) continue;
+      const dx = kart.position.x - by.position.x;
+      const dz = kart.position.z - by.position.z;
+      if (dx * dx + dz * dz > radius * radius || Math.abs(kart.position.y - by.position.y) > 4) continue;
+      if (kart.applyHit?.('spin')) bus.emit('item:hit', { kart, item: 'shockwave', by });
     }
   }
 
@@ -801,7 +816,7 @@ export class ItemSystem {
 
   _hitKart(kart, kind, item, by) {
     if (finite(kart.starTimer) > 0 || finite(kart.invulnTimer) > 0) return false;
-    kart.applyHit?.(kind);
+    if (!kart.applyHit?.(kind)) return false;
     bus.emit('item:hit', { kart, item, by });
     return true;
   }

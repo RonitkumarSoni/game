@@ -1,67 +1,47 @@
 # Neon Rift Racers
 
-<p align="center">
-  <img src="docs/screenshots/title.png" alt="Neon Rift Racers title screen" width="900" />
-</p>
+An original browser-based 3D arcade kart racer by **RonitkumarSoni**.
 
-<p align="center">
-  <strong>Break the track. Rule the rift.</strong><br />
-  A fast, original 3D arcade kart racer built for the browser.
-</p>
+Race through Nova Harbor, Ember Rift, Skyforge Circuit, and Chromewave City with eight distinct pilots, procedural vehicles, responsive arcade handling, tactical abilities, dynamic camera views, synthesized audio, and a premium neon interface.
 
-<p align="center">
-  <img alt="Three.js" src="https://img.shields.io/badge/Three.js-0.170-00d9ff?style=flat-square&logo=threedotjs&logoColor=white" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.7-3178c6?style=flat-square&logo=typescript&logoColor=white" />
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-6.0-646cff?style=flat-square&logo=vite&logoColor=white" />
-  <img alt="License" src="https://img.shields.io/badge/License-MIT-bd35ff?style=flat-square" />
-</p>
+## Highlights
 
-## About
-
-Neon Rift Racers combines responsive arcade handling, tactical abilities and a vivid low-poly world in a lightweight WebGL experience. Choose from eight pilots, master drifting and mini-turbos, and race seven AI rivals across Nova Harbor and Ember Rift.
-
-The game runs directly in a modern desktop or mobile browser. Its vehicles, environments, effects and audio are generated at runtime, keeping the project portable and easy to develop locally.
-
-## Screenshots
-
-### Choose your pilot
-
-![Neon Rift Racers pilot selection](docs/screenshots/pilot-selection.png)
-
-### Race through Nova Harbor
-
-| Starting grid | Live racing |
-| --- | --- |
-| ![Race countdown at the Nova Harbor starting grid](docs/screenshots/race-start.png) | ![Live race through Nova Harbor](docs/screenshots/race.png) |
-
-### Stay in control
-
-![Neon Rift Racers pause menu and control reference](docs/screenshots/pause-menu.png)
-
-## Features
-
-- Eight pilots with distinct speed, acceleration, handling and weight profiles
-- Arcade driving with hops, drifting, mini-turbos, boost ramps and collisions
-- Seven AI opponents with racing lines, tactical ability use and adaptive pace
-- Chase, front, wide and rear-view camera modes
-- Keyboard, gamepad and responsive on-screen controls
-- Switchable directional buttons and analog steering-wheel input on touch devices
-- Expandable tactical minimap and contextual ability HUD
-- Runtime-generated 3D vehicles, scenery, visual effects and Web Audio soundtrack
-- Animated neon interface powered by GSAP
-- Quick Race, solo Time Trial with a best-run ghost, and a four-round Grand Prix
+- Eight pilots with different speed, acceleration, handling, and weight stats
+- Live 3D pilot-and-kart showroom alongside the character portraits
+- Arcade kart physics with hop, drift, mini-turbo, boost, ramps, and collisions
+- Seven AI opponents with racing lines, tactical abilities, and adaptive pace
+- CHASE, FRONT, WIDE, and hold-to-rear camera views
+- Keyboard, gamepad, on-screen buttons, and analog steering-wheel input
+- Click-to-expand tactical minimap
+- Context-aware ability interface and responsive touch HUD
+- Ten tactical abilities, including a one-hit Phase Shield and close-range Shockwave Pulse
+- Procedurally generated 3D models, track visuals, effects, and Web Audio soundtrack
+- Responsive neon UI with GSAP transitions
+- Quick Race, solo Time Trial with best-run ghost, and a four-round Nova Harbor Cup
 - Elimination survival races and timed Checkpoint Rush with ordered gates
-- Two selectable circuits with distinct routes and scenery: Nova Harbor and Ember Rift
-- Local racer profile with achievements, medals and starter Career missions
+- Four selectable circuits, each with its own route and atmosphere
+- Local racer profile with race history, achievements, medals, earned titles, and starter career missions
 
-## Getting Started
+## Controls
 
-### Prerequisites
+| Action | Keyboard | Gamepad |
+| --- | --- | --- |
+| Accelerate | W / Up | A / Right trigger |
+| Brake or reverse | S / Down | B / Left trigger |
+| Steer | A/D or Left/Right | Left stick |
+| Hop or drift | Space | RB / X |
+| Use ability | E, X, or Left Shift | LB / Y |
+| Rear view | C | Stick click |
+| Pause | Esc / P | Start |
+| Mute | M | — |
+| Quick restart | R | — |
+| Toggle Time Trial ghost | G | — |
 
-- [Node.js](https://nodejs.org/) 20 or newer
-- A modern browser with WebGL support
+Touch players can switch between directional steering and an analog steering wheel while keeping accelerator, brake, drift, camera, and contextual ability controls available.
 
-### Installation
+## Local Development
+
+Requirements: Node.js 20 or newer.
 
 ```bash
 git clone https://github.com/RonitkumarSoni/game.git
@@ -70,64 +50,36 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite, then select a pilot to begin racing.
-
-### Production build
+Production verification:
 
 ```bash
+npm run typecheck
+npm test
 npm run build
-npm run preview
 ```
 
-## Controls
-
-| Action | Keyboard | Gamepad |
-| --- | --- | --- |
-| Accelerate | `W` / `Arrow Up` | `A` / Right trigger |
-| Brake / reverse | `S` / `Arrow Down` | `B` / Left trigger |
-| Steer | `A` `D` / Arrow keys | Left stick |
-| Hop / drift | `Space` | `RB` / `X` |
-| Use ability | `E` / `X` / `Left Shift` | `LB` / `Y` |
-| Rear view | `C` | Stick click |
-| Pause | `Esc` / `P` | Start |
-| Mute | `M` | — |
-
-Touch controls place steering on the left and driving actions on the right. The in-race switch lets players choose directional steering or the analog wheel without interrupting the race.
-
-## Development
-
-```bash
-npm run typecheck   # TypeScript validation
-npm test            # Unit test suite
-npm run lint        # Source linting
-npm run build       # Production bundle
-```
-
-### Project layout
+## Project Structure
 
 ```text
-src/          gameplay, rendering, audio and interface systems
-src/core/     reusable event, pooling and randomization utilities
-tests/unit/   deterministic unit tests
-public/       public browser assets
-docs/         screenshots and project media
-dev/          isolated gameplay test pages
+src/               game source and UI
+tests/             unit tests
+docs/              product and implementation specifications
+public/            public application assets
 ```
 
-For a deeper technical overview, see [ARCHITECTURE.md](ARCHITECTURE.md).
+## Documentation
 
-## Technology
-
-- [Three.js](https://threejs.org/) for WebGL rendering and 3D scenes
-- [TypeScript](https://www.typescriptlang.org/) for typed game systems
-- [GSAP](https://gsap.com/) for interface motion
-- [Vite](https://vite.dev/) for development and production builds
-- [Vitest](https://vitest.dev/) for unit testing
+- [Product requirements](PRD.md)
+- [Technical requirements](REQUIREMENTS.md)
+- [Improvement roadmap](docs/IMPROVEMENT_ROADMAP.md)
+- [Touch controls plan](docs/TOUCH_CONTROLS_PLAN.md)
+- [Animation and audio specification](docs/ANIMATION_AUDIO_SPEC.md)
+- [Multiplayer architecture](docs/MULTIPLAYER_ARCHITECTURE.md)
 
 ## Author
 
-Designed and developed by [RonitkumarSoni](https://github.com/RonitkumarSoni).
+**RonitkumarSoni**
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+Licensed under the MIT License. See [LICENSE](LICENSE).

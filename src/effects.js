@@ -407,10 +407,13 @@ const STREAK_FRAG = /* glsl */`
 // ---------------------------------------------------------------------------------------------
 // Effects
 // ---------------------------------------------------------------------------------------------
+export const surfaceParticleKind = (theme) => theme === 'skyforge' ? 'snow' : 'grass';
+
 export class Effects {
-  constructor(scene, camera) {
+  constructor(scene, camera, theme = 'default') {
     this.scene = scene;
     this.camera = camera;
+    this.snowSurface = surfaceParticleKind(theme) === 'snow';
     this.time = 0;
     this.group = new THREE.Group();
     this.group.name = 'Effects';
@@ -533,6 +536,8 @@ export class Effects {
       smokeDarker: new THREE.Color(0x221e1b),
       dust: new THREE.Color(0xc9a878),
       dustEnd: new THREE.Color(0xe0cfae),
+      snow: new THREE.Color(0xf5fbff),
+      snowShade: new THREE.Color(0xb7dff4),
       grass1: new THREE.Color(0x5dbb3a),
       grass2: new THREE.Color(0x3d8f25),
       dirt: new THREE.Color(0x7a5230),
@@ -551,6 +556,7 @@ export class Effects {
     const on = (name, fn) => this.unsubs.push(bus.on(name, (d) => { try { fn(d || {}); } catch (err) { console.error('[effects]', name, err); } }));
     on('item:pickup', (d) => this.burst('itemBox', d.position || d.kart?.position));
     on('item:explode', (d) => this.burst('explosion', d.position, { radius: d.radius, kind: d.kind }));
+    on('kart:shieldBlock', (d) => d.kart && this.burst('sparks', d.kart.position, { intensity: 0.8 }));
     on('kart:hit', (d) => {
       if (!d.kart) return;
       if (d.kind === 'shrink') this.burst('shrink', d.kart.position, { kart: d.kart });
@@ -725,7 +731,7 @@ export class Effects {
     }
     if (st.boostKick > 0) st.boostKick -= dt;
 
-    // ---- offroad dust & grass flecks
+    // ---- offroad surface spray: powder and snowflakes on Skyforge, grass elsewhere
     if (k.surface === 'offroad' && absSpeed > 4 && !airborne) {
       const rate = Math.min(1, absSpeed / 30);
       st.dust += dt * 28 * rate;
@@ -735,18 +741,18 @@ export class Effects {
         const left = Math.random() < 0.5;
         this._anchor(k, left ? 'wheelRL' : 'wheelRR', left ? 0.78 : -0.78, 0.1, -0.85, _v);
         smoke.spawn(_v.x, _v.y, _v.z, vx * 0.2 - fwd.x * 2 + rand(-1, 1), rand(1, 2.5), vz * 0.2 - fwd.z * 2 + rand(-1, 1),
-          rand(0.6, 1.0), 0.6 * scale, rand(2, 3) * scale, C.dust, C.dustEnd, 0.55, -0.5, 2, 0, rand(-1, 1));
+          rand(0.6, 1.0), 0.6 * scale, rand(2, 3) * scale, this.snowSurface ? C.snow : C.dust, this.snowSurface ? C.snowShade : C.dustEnd, 0.55, -0.5, 2, 0, rand(-1, 1));
       }
       while (st.fleck >= 1) {
         st.fleck -= 1;
         const left = Math.random() < 0.5;
         this._anchor(k, left ? 'wheelRL' : 'wheelRR', left ? 0.78 : -0.78, 0.15, -0.85, _v);
         const r = Math.random();
-        const col = r < 0.45 ? C.grass1 : r < 0.8 ? C.grass2 : C.dirt;
-        const s = rand(0.08, 0.16);
+        const col = this.snowSurface ? (r < 0.7 ? C.snow : C.snowShade) : r < 0.45 ? C.grass1 : r < 0.8 ? C.grass2 : C.dirt;
+        const s = this.snowSurface ? rand(0.035, 0.09) : rand(0.08, 0.16);
         this.chunks.spawn(_v.x, _v.y, _v.z,
           vx * 0.3 - fwd.x * rand(2, 6) + rand(-2, 2), rand(4, 8), vz * 0.3 - fwd.z * rand(2, 6) + rand(-2, 2),
-          rand(0.5, 0.8), s, s * 0.4, s * 1.6, col, 26, 0.5, _v.y - 0.3);
+          rand(0.5, 0.8), s, s * (this.snowSurface ? 0.8 : 0.4), s * (this.snowSurface ? 0.9 : 1.6), col, 26, 0.5, _v.y - 0.3);
       }
     }
 
@@ -926,7 +932,8 @@ export class Effects {
     const C = this.C;
     const k = opts.kart;
     const offroad = k?.surface === 'offroad';
-    const col0 = offroad ? C.dust : C.smokeLight, col1 = offroad ? C.dustEnd : C.smokeGrey;
+    const col0 = offroad ? (this.snowSurface ? C.snow : C.dust) : C.smokeLight;
+    const col1 = offroad ? (this.snowSurface ? C.snowShade : C.dustEnd) : C.smokeGrey;
     const scl = finite(k?.object3D?.scale?.x, 1);
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * Math.PI * 2 + rand(-0.2, 0.2), sp = rand(4, 7);

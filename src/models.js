@@ -386,7 +386,7 @@ function tireGeometry(R, W) {
 function tireMat() {
   return cached('tire', () => {
     const t = tireTexture();
-    return new THREE.MeshStandardMaterial({ color: 0x3a3a3e, map: t, bumpMap: t, bumpScale: 3, roughness: 0.88, metalness: 0, envMap: envMap(), envMapIntensity: 0.4 });
+    return new THREE.MeshStandardMaterial({ color: 0x171b22, map: t, bumpMap: t, bumpScale: 2.2, roughness: 0.82, metalness: 0, envMap: envMap(), envMapIntensity: 0.35 });
   });
 }
 
@@ -839,19 +839,22 @@ function charIndex(ch) {
 // ---------------------------------------------------------------------------------------------
 // createKartModel
 // ---------------------------------------------------------------------------------------------
-export function createKartModel(character) {
-  const ch = normChar(character);
+export function createKartModel(character, vehicle = null) {
+  const vehiclePaint = { nova: 0x08d7f5, comet: 0xff8a16, volt: 0x3fe9a1, phantom: 0xa83cf2, aegis: 0xed302f, vector: 0x3287ff };
+  const vehicleAccent = { nova: 0xc5f8ff, comet: 0xffb348, volt: 0xb6ffe1, phantom: 0xd188ff, aegis: 0xff6255, vector: 0xbad8ff };
+  const base = normChar(character);
+  const ch = vehicle?.id && vehiclePaint[vehicle.id] ? { ...base, color: vehiclePaint[vehicle.id], accent: vehicleAccent[vehicle.id] } : base;
   const tpl = kartTemplate(ch);
   const st = tpl.st;
 
   // per-kart materials (so star mode emissive does not leak to other karts)
   const paint = new THREE.MeshPhysicalMaterial({
-    color: ch.color, roughness: 0.32, metalness: 0.12, clearcoat: 1, clearcoatRoughness: 0.06,
-    envMap: envMap(), envMapIntensity: 0.55, emissive: 0x000000, side: THREE.DoubleSide,
+    color: ch.color, roughness: 0.25, metalness: 0.26, clearcoat: 1, clearcoatRoughness: 0.04,
+    envMap: envMap(), envMapIntensity: 0.65, emissive: vehicle?.id ? ch.color : 0x000000, emissiveIntensity: vehicle?.id ? 0.09 : 0, side: THREE.DoubleSide,
   });
   const accent = new THREE.MeshPhysicalMaterial({
-    color: ch.accent, roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.1,
-    envMap: envMap(), envMapIntensity: 0.55, emissive: 0x000000,
+    color: ch.accent, roughness: 0.28, metalness: 0.2, clearcoat: 0.9, clearcoatRoughness: 0.08,
+    envMap: envMap(), envMapIntensity: 0.75, emissive: 0x000000,
   });
   const slots = { paint, accent };
   const ownMats = [paint, accent];
@@ -863,7 +866,118 @@ export function createKartModel(character) {
   const body = new THREE.Group();     // suspended body (bob / roll / pitch)
   visual.add(body);
 
-  body.add(instantiate(tpl.chassis, slots));
+  const chassis = instantiate(tpl.chassis, slots);
+  const chassisShapes = {
+    comet: [1.05, 0.89, 1.17],
+    volt: [0.91, 0.98, 0.98],
+    phantom: [1.12, 0.89, 1.02],
+    aegis: [1.19, 1.1, 1.05],
+    vector: [0.98, 0.93, 1.14],
+  };
+  chassis.scale.set(...(chassisShapes[vehicle?.id] || [1, 1, 1]));
+  body.add(chassis);
+
+  if (vehicle?.id) {
+    const lampMat = new THREE.MeshBasicMaterial({ color: ch.color });
+    const grilleMat = new THREE.MeshStandardMaterial({ color: 0x0c1a29, metalness: 0.55, roughness: 0.25 });
+    ownMats.push(lampMat, grilleMat);
+    for (const side of [-1, 1]) {
+      const lamp = new THREE.Mesh(cachedGeo('vehicle:lamp', () => new THREE.TorusGeometry(0.09, 0.022, 8, 20)), lampMat);
+      lamp.position.set(side * 0.34, 0.47, 1.34);
+      body.add(lamp);
+    }
+    const grille = new THREE.Mesh(cachedGeo('vehicle:grille', () => new THREE.BoxGeometry(0.3, 0.07, 0.04)), grilleMat);
+    grille.position.set(0, 0.4, 1.37);
+    body.add(grille);
+  }
+
+  // The vehicle kit is part of the real gameplay model, not a menu-only picture.
+  // Body styles are deliberately different at silhouette level so unlocks feel earned.
+  if (vehicle?.id) {
+    const id = vehicle.id;
+    const trim = new THREE.MeshPhysicalMaterial({ color: ch.color, metalness: 0.38, roughness: 0.24, clearcoat: 1, emissive: ch.color, emissiveIntensity: 0.08, side: THREE.DoubleSide });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x12202c, metalness: 0.48, roughness: 0.3 });
+    const light = new THREE.MeshBasicMaterial({ color: ch.color });
+    ownMats.push(trim, dark, light);
+    const part = (name, size, pos, mat = trim, angle = 0) => {
+      const geo = cachedGeo(`vehicle:rounded:${name}:${size.join(':')}`, () => new RoundedBoxGeometry(...size, 2, Math.min(0.055, ...size.map((v) => v / 4))));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = `vehicle-${id}-${name}`;
+      mesh.position.set(...pos); mesh.rotation.y = angle; body.add(mesh); return mesh;
+    };
+    const wide = id === 'aegis';
+    const fast = id === 'comet' || id === 'vector';
+    if (id === 'nova') {
+      const noseGeo = cachedGeo('vehicle:nova:noseHull', () => {
+        const sections = [[0.34, 0.8, 0.5, 0.29], [0.48, 0.72, 0.43, 0.9], [0.38, 0.53, 0.4, 1.31]];
+        const vertices = sections.flatMap(([w, top, bottom, z]) => [-w, top, z, w, top, z, -w, bottom, z, w, bottom, z]);
+        const indices = [];
+        const quad = (a, b, c, d) => indices.push(a, b, c, a, c, d);
+        for (let i = 0; i < sections.length - 1; i++) {
+          const a = i * 4, b = (i + 1) * 4;
+          quad(a, a + 1, b + 1, b);
+          quad(a + 2, b + 2, b + 3, a + 3);
+          quad(a, b, b + 2, a + 2);
+          quad(a + 1, a + 3, b + 3, b + 1);
+        }
+        quad(8, 9, 11, 10);
+        quad(0, 2, 3, 1);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.setIndex(indices);
+        const flat = geometry.toNonIndexed();
+        flat.computeVertexNormals();
+        geometry.dispose();
+        return flat;
+      });
+      const nose = new THREE.Mesh(noseGeo, trim);
+      nose.name = 'vehicle-nova-noseHull';
+      body.add(nose);
+      part('novaAirIntake', [0.24, 0.025, 0.3], [0, 0.75, 0.65], dark);
+      for (const side of [-1, 1]) {
+        part(`novaFrontWing${side}`, [0.51, 0.08, 0.22], [side * 0.56, 0.36, 1.26]);
+        const lamp = new THREE.Mesh(cachedGeo('vehicle:nova:headlightRing', () => new THREE.TorusGeometry(0.105, 0.028, 10, 24)), light);
+        lamp.position.set(side * 0.29, 0.49, 1.43);
+        body.add(lamp);
+      }
+    }
+    if (id !== 'nova') part('hood', [wide ? 1.05 : 0.78, wide ? 0.27 : 0.2, fast ? 1.08 : 0.88], [0, 0.61, 0.79]);
+    part('hoodVent', [0.29, 0.028, 0.31], [0, wide ? 0.765 : 0.735, 0.76], dark);
+    part('splitter', [wide ? 1.45 : 1.22, 0.07, 0.22], [0, 0.36, 1.27], dark);
+    part('rearDeck', [1.13, 0.12, 0.42], [0, 0.67, -0.89]);
+    const wingWidth = id === 'nova' ? 1.3 : id === 'aegis' ? 1.72 : 1.58;
+    const wingHeight = id === 'comet' || id === 'vector' ? 1.21 : 1.12;
+    part('rearWing', [wingWidth, id === 'aegis' ? 0.15 : 0.09, 0.24], [0, wingHeight, -1.13]);
+    for (const side of [-1, 1]) {
+      part(`wingPylon${side}`, [0.09, wingHeight - 0.79, 0.12], [side * 0.48, (wingHeight + 0.79) / 2, -1.1], dark);
+      part(`sidePod${side}`, [wide ? 0.38 : 0.24, wide ? 0.28 : 0.19, 0.79], [side * (wide ? 0.79 : 0.7), 0.51, -0.11]);
+      part(`sideStripe${side}`, [0.12, 0.035, 0.62], [side * (wide ? 0.81 : 0.72), wide ? 0.67 : 0.625, -0.1], light);
+      if (fast) part(`aeroFin${side}`, [0.08, 0.23, 0.72], [side * 0.73, 0.72, 0.18], trim, side * 0.12);
+      if (id === 'volt') {
+        part(`batteryPod${side}`, [0.34, 0.17, 0.43], [side * 0.77, 0.58, -0.45], dark);
+        part(`batteryGlow${side}`, [0.27, 0.035, 0.32], [side * 0.77, 0.685, -0.45], light);
+        part(`voltFork${side}`, [0.14, 0.1, 0.63], [side * 0.49, 0.5, 1.04], trim, side * 0.12);
+      }
+      if (id === 'phantom') {
+        part(`driftBlade${side}`, [0.12, 0.39, 0.68], [side * 0.79, 0.77, -0.54], trim, side * 0.29);
+        part(`driftRail${side}`, [0.1, 0.06, 0.93], [side * 0.79, 0.35, 0.06], light);
+      }
+      if (wide) {
+        part(`armorShoulder${side}`, [0.36, 0.26, 0.63], [side * 0.8, 0.68, 0.25]);
+        part(`armorBumper${side}`, [0.26, 0.15, 0.32], [side * 0.56, 0.45, 1.23], dark);
+        part(`armorFender${side}`, [0.43, 0.2, 0.46], [side * 0.91, 0.7, 0.77]);
+      }
+      if (id === 'vector') {
+        part(`vectorWinglet${side}`, [0.09, 0.21, 0.42], [side * 0.8, 0.77, -0.93], light, side * 0.26);
+        part(`vectorCanard${side}`, [0.42, 0.055, 0.18], [side * 0.59, 0.49, 1.23], trim, side * 0.24);
+      }
+    }
+    if (id === 'comet') {
+      part('cometNoseStripe', [0.14, 0.025, 0.73], [0, 0.75, 0.94], accent);
+      part('cometRearDiffuser', [1.18, 0.08, 0.27], [0, 0.38, -1.18], dark);
+    }
+    if (id === 'phantom') part('phantomNoseBlade', [0.39, 0.045, 0.86], [0, 0.77, 0.88], dark);
+  }
 
   // decals
   const num = charIndex(ch);
@@ -872,7 +986,7 @@ export function createKartModel(character) {
   const hoodDecal = new THREE.Mesh(decalGeo, numMat);
   hoodDecal.position.set(0, 0.748, 0.8);
   hoodDecal.rotation.set(-PI / 2 + 0.29, 0, PI);
-  body.add(hoodDecal);
+  if (vehicle?.id !== 'nova') body.add(hoodDecal);
   for (const sx of [-1, 1]) {
     const d = new THREE.Mesh(decalGeo, numMat);
     d.scale.setScalar(0.9);
@@ -904,8 +1018,36 @@ export function createKartModel(character) {
   const head = new THREE.Group();
   head.position.copy(K.neck);
   driver.add(head);
-  head.add(instantiate(tpl.head, slots));
-  if (ch.hat === 'cap') {
+  if (!vehicle?.id) head.add(instantiate(tpl.head, slots));
+  if (vehicle?.id) {
+    // Race-ready helmet and wraparound visor, shared by the garage and track.
+    const helmet = new THREE.MeshPhysicalMaterial({ color: vehicle.id === 'nova' ? 0xf4f7ff : ch.color, roughness: 0.18, metalness: 0.22, clearcoat: 1, clearcoatRoughness: 0.05 });
+    const visor = new THREE.MeshPhysicalMaterial({ color: 0x081a38, roughness: 0.08, metalness: 0.42, clearcoat: 1, clearcoatRoughness: 0.02 });
+    ownMats.push(helmet, visor);
+    const shell = new THREE.Mesh(cachedGeo('vehicle:helmet', () => new THREE.SphereGeometry(0.36, 24, 16)), helmet);
+    shell.position.set(0, 0.23, 0);
+    shell.scale.set(1.08, 0.89, 1.02);
+    head.add(shell);
+    const glass = new THREE.Mesh(cachedGeo('vehicle:visorPanel', () => new RoundedBoxGeometry(0.57, 0.25, 0.055, 3, 0.09)), visor);
+    glass.position.set(0, 0.235, 0.352);
+    head.add(glass);
+    const visorGlint = new THREE.Mesh(cachedGeo('vehicle:visorGlint', () => new THREE.BoxGeometry(0.24, 0.018, 0.02)), accent);
+    visorGlint.position.set(-0.075, 0.31, 0.388);
+    visorGlint.rotation.z = -0.16;
+    head.add(visorGlint);
+    if (vehicle.id === 'nova') {
+      const spotMat = new THREE.MeshStandardMaterial({ color: 0x9c62ed, roughness: 0.28, metalness: 0.1 });
+      ownMats.push(spotMat);
+      for (const [x, y, z, sx] of [[0, 0.535, 0.04, 1], [-0.28, 0.36, 0.14, 0.9], [0.28, 0.36, 0.14, 0.9]]) {
+        const spot = new THREE.Mesh(cachedGeo('vehicle:helmetSpot', () => new THREE.SphereGeometry(0.12, 20, 12)), spotMat);
+        spot.position.set(x, y, z); spot.scale.set(sx, 0.38, 0.8); head.add(spot);
+      }
+    }
+    const stripe = new THREE.Mesh(cachedGeo('vehicle:helmetStripe', () => new THREE.BoxGeometry(0.09, 0.025, 0.48)), accent);
+    stripe.position.set(0, 0.54, 0.09);
+    head.add(stripe);
+  }
+  if (!vehicle?.id && ch.hat === 'cap') {
     const emb = new THREE.Mesh(cachedGeo('emblem', () => new THREE.CircleGeometry(0.085, 24)), decalMat(emblemTex(ch.name.charAt(0).toUpperCase(), ch.color)));
     const d = dirYP(0, 0.62);
     const R = K.headR * 1.07;
@@ -917,9 +1059,15 @@ export function createKartModel(character) {
   }
 
   // Arms (dynamic: shoulder -> hand on the steering wheel)
+  const suitMat = vehicle?.id ? new THREE.MeshStandardMaterial({ color: 0x171d2b, roughness: 0.56 }) : null;
+  if (suitMat) {
+    ownMats.push(suitMat);
+    const suit = new THREE.Mesh(cachedGeo('vehicle:suit', () => new THREE.SphereGeometry(0.29, 20, 14)), suitMat);
+    suit.position.set(0, 0.31, 0); suit.scale.set(1.04, 1.15, 0.92); driver.add(suit);
+  }
   const arms = [];
   for (const sx of [1, -1]) {
-    const mesh = new THREE.Mesh(armGeo(), paint);
+    const mesh = new THREE.Mesh(armGeo(), suitMat || paint);
     mesh.castShadow = true;
     body.add(mesh);
     arms.push({ mesh, sx, shoulder: V3(sx * 0.25 * (st.wide || 1), 0.44, 0.02), hand: V3(Math.cos(sx > 0 ? 0.35 : PI - 0.35) * K.wheelRad * 0.95, Math.sin(0.35) * K.wheelRad - 0.02, -0.06) });
@@ -927,6 +1075,9 @@ export function createKartModel(character) {
 
   // Wheels
   const wheels = [];
+  const rimGlow = vehicle?.id ? new THREE.MeshBasicMaterial({ color: ch.color }) : null;
+  const hubMat = vehicle?.id ? new THREE.MeshStandardMaterial({ color: 0x22303a, metalness: 0.6, roughness: 0.3 }) : null;
+  if (rimGlow) ownMats.push(rimGlow, hubMat);
   const makeWheel = (name, x, z, R, W, front) => {
     const pivot = new THREE.Group();
     pivot.position.set(x, R, z);
@@ -934,7 +1085,22 @@ export function createKartModel(character) {
     if (x < 0) flip.rotation.y = PI; // outer face toward -X on the right side
     const spin = new THREE.Group();
     pivot.add(flip); flip.add(spin);
-    spin.add(instantiate(wheelTemplate(R, W, ch.accent, ch.color), slots));
+    spin.add(instantiate(wheelTemplate(R, W, vehicle?.id ? 0x172b3c : ch.accent, ch.color), slots));
+    if (rimGlow) {
+      const sidewall = new THREE.Mesh(cachedGeo(`vehicle:sidewall:${R}`, () => new THREE.CylinderGeometry(R * 0.81, R * 0.81, 0.028, 28)), tireMat());
+      sidewall.rotation.z = PI / 2;
+      sidewall.position.x = W * 0.48;
+      spin.add(sidewall);
+      const hub = new THREE.Mesh(cachedGeo(`vehicle:hub:${R}`, () => new THREE.CylinderGeometry(R * 0.4, R * 0.4, 0.03, 24)), hubMat);
+      hub.rotation.z = PI / 2;
+      hub.position.x = W * 0.55;
+      spin.add(hub);
+      const rim = new THREE.Mesh(cachedGeo(`vehicle:rim:${R}`, () => new THREE.TorusGeometry(R * 0.58, 0.026, 8, 20)), rimGlow);
+      rim.rotation.y = PI / 2;
+      rim.position.x = W * 0.53;
+      spin.add(rim);
+      spin.scale.setScalar(vehicle.id === 'aegis' ? 1.18 : vehicle.id === 'comet' ? 1.08 : 1.04);
+    }
     visual.add(pivot);
     wheels.push({ pivot, spin, R, front, dirSign: x < 0 ? -1 : 1, baseY: R });
     const a = new THREE.Object3D();

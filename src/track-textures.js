@@ -76,9 +76,9 @@ export function makeAsphaltTexture() {
 }
 
 // Red/white rumble strip: u across (0..1), v along (one red + one white block per repeat)
-export function makeCurbTexture() {
+export function makeCurbTexture(ice = false) {
   const [c, ctx] = canvas(64, 128);
-  ctx.fillStyle = '#e8322f'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = ice ? '#26bde9' : '#e8322f'; ctx.fillRect(0, 0, 64, 64);
   ctx.fillStyle = '#fbfbf7'; ctx.fillRect(0, 64, 64, 64);
   // bevel shading
   const g = ctx.createLinearGradient(0, 0, 64, 0);
@@ -87,6 +87,15 @@ export function makeCurbTexture() {
   g.addColorStop(0.8, 'rgba(255,255,255,0.1)');
   g.addColorStop(1, 'rgba(0,0,0,0.2)');
   ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 128);
+  return finish(c);
+}
+
+export function makeSnowTexture() {
+  const W = 256, H = 256;
+  const [c, ctx] = canvas(W, H);
+  const rand = rng(83);
+  ctx.fillStyle = '#d8edf5'; ctx.fillRect(0, 0, W, H);
+  speckle(ctx, W, H, 5200, ['#b9d9e9', '#ecfaff', '#a9cadb', '#c6e5f0'], rand, 1, 2.5);
   return finish(c);
 }
 

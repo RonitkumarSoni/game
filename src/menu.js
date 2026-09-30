@@ -5,6 +5,8 @@ import { gsap } from 'gsap';
 import { ACHIEVEMENTS } from './profile.js';
 import { careerState } from './career.js';
 import { TRACKS } from './track-data.js';
+import { SelectionStage } from './selection-stage.js';
+import { garageLevel, garageXp, vehicleUnlocked, VEHICLE_LEVELS } from './garage.js';
 
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
 const DIFFS = ['easy', 'normal', 'hard'];
@@ -38,8 +40,11 @@ export class Menu {
   constructor(uiRoot, handlers = {}) {
     this.uiRoot = uiRoot;
     this.h = handlers; // { onStart({characterIndex, difficulty, laps}), onResume, onRestart, onQuit }
-    this.screen = null; // 'title' | 'select' | 'pause' | null
+    this.screen = null; // 'title' | 'select' | 'garage' | 'pause' | null
     this.portraitFn = null;
+    this.stageProvider = null;
+    this.stage = null;
+    this.garageStage = null;
     this.charIndex = 0;
     this.diffIndex = 1;
     this.lapsIndex = 1;
@@ -77,6 +82,7 @@ export class Menu {
 
     this._buildTitle();
     this._buildSelect();
+    this._buildGarage();
     this._buildPause();
     this._buildSettings();
     this._buildProfile();
@@ -146,28 +152,21 @@ export class Menu {
         <div class="sel-grid"></div>
         <div class="sel-side">
           <div class="preview">
-            <div class="pv-portrait">
+            <div class="pv-showcase"><div class="pv-portrait">
               <div class="pv-content"><img alt=""><span class="pv-initial"></span></div>
               <div class="portrait-curtain curtain-left"></div>
               <div class="portrait-curtain curtain-right"></div>
-            </div>
+            </div></div>
             <div class="pv-info">
               <div class="pv-name"></div>
               <div class="pv-kart"><span class="swatch"></span><span class="pv-kart-lbl"></span></div>
               <div class="pv-stats"></div>
             </div>
+            <div class="pv-stage" aria-label="Live 3D pilot and kart preview"><span class="pv-stage-label">LIVE GARAGE // 3D</span></div>
           </div>
-          <div class="opts">
-            <div class="opt" data-i="0"><span class="opt-lbl">VEHICLE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <div class="opt" data-i="1"><span class="opt-lbl">CLASS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <div class="opt" data-i="2"><span class="opt-lbl">LAPS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <div class="opt" data-i="3"><span class="opt-lbl">MODE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <div class="opt" data-i="4"><span class="opt-lbl">TRACK</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
-            <button class="btn primary race-btn" data-i="5">RACE!</button>
-          </div>
+          <button class="btn primary continue-btn" type="button">CONTINUE TO GARAGE ❯</button>
         </div>
-      </div>
-      <div class="controls-help">${CONTROLS_HTML}</div>`;
+      </div>`;
     const grid = s.querySelector('.sel-grid');
     this.cards = CHARACTERS.map((ch, i) => {
       const card = el('div', 'card', grid);
@@ -190,7 +189,7 @@ export class Menu {
         this.zone = 'grid';
         this._setChar(i, true);
         card.classList.remove('picked'); void card.offsetWidth; card.classList.add('picked');
-        this._start();
+        this.showGarage();
       });
       return { card, img: card.querySelector('img'), initial: card.querySelector('.initial') };
     });
@@ -203,19 +202,46 @@ export class Menu {
       kartLbl: s.querySelector('.pv-kart-lbl'),
       stats: s.querySelector('.pv-stats'),
     };
+    s.querySelector('.continue-btn').addEventListener('click', () => this.showGarage());
+    s.querySelector('.sel-back').addEventListener('click', () => this._toTitle());
+    this._refreshPreview();
+  }
+
+  _buildGarage() {
+    const s = this.garageEl = el('div', 'screen garage-screen', this.uiRoot);
+    s.innerHTML = `
+      <div class="sel-header"><div><div class="sel-eyebrow">RIFT GARAGE // VEHICLE BAY</div><div class="sel-title">CHOOSE YOUR KART</div></div><div class="garage-header-right"><span class="garage-brand">NEON <em>RIFT</em><small>RACERS</small></span><button class="garage-back" type="button">← PILOTS</button></div></div>
+      <div class="garage-body"><div class="garage-grid"></div><div class="garage-side">
+        <div class="garage-detail"><div class="garage-stage" aria-label="Live 3D kart preview"></div><div class="garage-name"></div><div class="garage-role"></div><div class="garage-stats"></div><div class="garage-lock-note"></div></div>
+        <div class="opts">
+          <div class="opt" data-i="1"><span class="opt-lbl">CLASS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+          <div class="opt" data-i="2"><span class="opt-lbl">LAPS</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+          <div class="opt" data-i="3"><span class="opt-lbl">MODE</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+          <div class="opt" data-i="4"><span class="opt-lbl">TRACK</span><span class="opt-arrow l">◀</span><span class="opt-val"></span><span class="opt-arrow r">▶</span></div>
+          <button class="btn primary race-btn" data-i="5">RACE!</button>
+        </div>
+      </div></div><div class="garage-footer"><span>NEON RIFT RACERS</span><i></i><span>DRIVE&nbsp; // &nbsp;DRIFT&nbsp; // &nbsp;BELONG</span></div>`;
+    const grid = s.querySelector('.garage-grid');
+    this.vehicleCards = VEHICLES.map((vehicle, index) => {
+      const card = el('button', 'garage-card', grid);
+      card.type = 'button';
+      card.style.setProperty('--vc', ['#00d9ff','#ffb94f','#5cffaa','#ca75ff','#ff6757','#74acff'][index]);
+      card.innerHTML = `<span class="garage-card-top"><b>${vehicle.name}</b><small>${vehicle.role}</small></span><span class="garage-card-art"><img alt="${vehicle.name} kart" loading="eager"></span><span class="garage-card-state"></span>`;
+      card.addEventListener('click', () => { this.vehicleIndex = index; this._refreshGarage(); });
+      return card;
+    });
     this.optEls = [...s.querySelectorAll('.opts [data-i]')];
     this.optEls.forEach((o, i) => {
-      o.addEventListener('mouseenter', () => { if (this.screen === 'select') { this.zone = 'opts'; this.optIndex = i; this._refreshFocus(); } });
-      if (i < 5) {
-        o.querySelector('.l').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(-1); });
-        o.querySelector('.r').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
-        o.querySelector('.opt-val').addEventListener('click', () => { this.zone = 'opts'; this.optIndex = i; this._changeOpt(1); });
+      o.addEventListener('mouseenter', () => { if (this.screen === 'garage') { this.zone = 'opts'; this.optIndex = i + 1; this._refreshFocus(); } });
+      if (i < 4) {
+        o.querySelector('.l').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i + 1; this._changeOpt(-1); });
+        o.querySelector('.r').addEventListener('click', (e) => { e.stopPropagation(); this.zone = 'opts'; this.optIndex = i + 1; this._changeOpt(1); });
+        o.querySelector('.opt-val').addEventListener('click', () => { this.zone = 'opts'; this.optIndex = i + 1; this._changeOpt(1); });
       } else {
         o.addEventListener('click', () => this._start());
       }
     });
-    s.querySelector('.sel-back').addEventListener('click', () => this._toTitle());
-    this._refreshPreview();
+    s.querySelector('.garage-back').addEventListener('click', () => this.showSelect());
     this._refreshOpts();
   }
 
@@ -286,6 +312,7 @@ export class Menu {
         <button class="settings-close" type="button" aria-label="Close settings">×</button>
         <div class="settings-eyebrow">SYSTEM CONFIGURATION</div>
         <div class="settings-title">SETTINGS</div>
+        <div class="settings-controls"><div class="settings-column">
         <label class="setting-row"><span><b>MASTER VOLUME</b><small>Music, engine and effects</small></span><input data-setting="volume" type="range" min="0" max="100" step="1"><output></output></label>
         <label class="setting-row"><span><b>STEERING RESPONSE</b><small>Keyboard, touch, wheel and tilt</small></span><input data-setting="steerSensitivity" type="range" min="60" max="140" step="5"><output></output></label>
         <label class="setting-row"><span><b>GAMEPAD DEAD ZONE</b><small>Ignore small stick drift</small></span><input data-setting="gamepadDeadzone" type="range" min="5" max="35" step="1"><output></output></label>
@@ -293,6 +320,7 @@ export class Menu {
         <label class="setting-row"><span><b>TOUCH LAYOUT</b><small>Choose steering hand</small></span><select data-setting="touchLayout"><option value="right">RIGHT STEERING</option><option value="left">LEFT STEERING</option></select></label>
         <label class="setting-row toggle-row"><span><b>AUTO ACCELERATE</b><small>Touch devices accelerate unless braking</small></span><input data-setting="autoAccelerate" type="checkbox"><i></i></label>
         <label class="setting-row"><span><b>HUD SIZE</b><small>Lap, map, speed and position</small></span><input data-setting="hudScale" type="range" min="80" max="120" step="5"><output></output></label>
+        </div><div class="settings-column">
         <label class="setting-row"><span><b>GRAPHICS QUALITY</b><small>Resolution, shadows and bloom</small></span><select data-setting="graphics"><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high">HIGH</option></select></label>
         <label class="setting-row"><span><b>DEFAULT CAMERA</b><small>Starting race viewpoint</small></span><select data-setting="cameraView"><option value="chase">CHASE</option><option value="hood">FRONT</option><option value="wide">WIDE</option></select></label>
         <label class="setting-row toggle-row"><span><b>CAMERA SHAKE</b><small>Impacts, boosts and landings</small></span><input data-setting="cameraShake" type="checkbox"><i></i></label>
@@ -300,9 +328,10 @@ export class Menu {
         <label class="setting-row toggle-row"><span><b>SAFE FLASHES</b><small>Dim impact and lightning flashes</small></span><input data-setting="safeFlashes" type="checkbox"><i></i></label>
         <label class="setting-row toggle-row"><span><b>HIGH CONTRAST</b><small>Clearer panel edges and labels</small></span><input data-setting="highContrast" type="checkbox"><i></i></label>
         <label class="setting-row toggle-row"><span><b>MAP POSITION MARKERS</b><small>Identify rivals by rank, not color</small></span><input data-setting="colorblindMarkers" type="checkbox"><i></i></label>
-        <div class="settings-note">Tilt steering recalibrates when TILT is enabled during a race.</div>
-        <button class="settings-replay" type="button">REPLAY ROOKIE TUTORIAL</button>
-        <button class="btn settings-done" type="button">SAVE & RETURN</button>
+        </div></div>
+        <div class="settings-footer"><div class="settings-note">TIP: TILT STEERING RECALIBRATES WHEN TILT IS ENABLED DURING A RACE.</div>
+        <button class="settings-replay" type="button">▶ &nbsp; REPLAY ROOKIE TUTORIAL</button>
+        <button class="btn settings-done" type="button">✓ &nbsp; SAVE & RETURN</button></div>
       </div>`;
     this.settingInputs = [...s.querySelectorAll('[data-setting]')];
     const update = (input) => {
@@ -341,7 +370,12 @@ export class Menu {
 
   _buildProfile() {
     const screen = this.profileEl = el('div', 'screen profile-screen', this.uiRoot);
-    screen.innerHTML = `<div class="profile-panel"><button class="profile-back" type="button">← BACK</button><div class="settings-eyebrow">RACER DOSSIER</div><h2>YOUR PROFILE</h2><label class="profile-title-picker">EQUIPPED TITLE <select></select></label><div class="profile-stats"></div><h3>ACHIEVEMENTS</h3><div class="profile-achievements"></div><h3>RECENT EVENTS</h3><div class="profile-history"></div></div>`;
+    screen.innerHTML = `<div class="profile-panel profile-dashboard">
+      <header class="profile-header"><button class="profile-back" type="button">❮ &nbsp; BACK</button><div><div class="settings-eyebrow">RACER DOSSIER</div><h2>YOUR <em>PROFILE</em></h2></div><span class="profile-header-tag">RACE &nbsp;▸&nbsp; IMPROVE &nbsp;▸&nbsp; BELONG</span></header>
+      <section class="profile-identity"><div class="profile-identity-art" aria-hidden="true"><span>NRR</span></div><div class="profile-identity-main"><label class="profile-title-picker">EQUIPPED TITLE <select></select></label><div class="profile-level"></div><div class="profile-xp"><i></i></div><div class="profile-xp-label"></div></div><div class="profile-level-badge"><b></b><small>RACER LEVEL</small></div></section>
+      <section class="profile-stat-section"><div class="profile-section-heading"><h3>▥ &nbsp; STATS OVERVIEW</h3><span>11 KEY STATS</span></div><div class="profile-stats"></div></section>
+      <div class="profile-lower"><section class="profile-achievement-section"><div class="profile-section-heading"><h3>🏆 &nbsp; ACHIEVEMENTS</h3><span class="profile-achievement-count"></span></div><div class="profile-achievements"></div></section><section class="profile-history-section"><div class="profile-section-heading"><h3>⚑ &nbsp; RECENT EVENTS</h3></div><div class="profile-history"></div></section></div>
+    </div>`;
     screen.querySelector('.profile-back').addEventListener('click', () => { bus.emit('ui:back'); this.showTitle(); });
     screen.querySelector('.profile-title-picker select').addEventListener('change', (event) => {
       this.h.onEquipTitle?.(event.target.value);
@@ -361,6 +395,9 @@ export class Menu {
     list.textContent = '';
     for (const event of careerState(profile)) {
       const card = el('div', `career-event${event.completed ? ' complete' : ''}${event.unlocked ? '' : ' locked'}`, list);
+      const medal = el('span', `career-medal career-medal-${event.medal.toLowerCase()}`, card);
+      medal.setAttribute('role', 'img');
+      medal.setAttribute('aria-label', `${event.medal} medal`);
       const copy = el('div', 'career-copy', card);
       el('strong', '', copy).textContent = event.name;
       el('span', '', copy).textContent = event.goal;
@@ -386,6 +423,12 @@ export class Menu {
       titleSelect.appendChild(option);
     }
     titleSelect.value = profile.selectedTitle;
+    const level = garageLevel(profile);
+    const xp = garageXp(profile);
+    this.profileEl.querySelector('.profile-level').textContent = `★  LEVEL ${level}`;
+    this.profileEl.querySelector('.profile-level-badge b').textContent = level;
+    this.profileEl.querySelector('.profile-xp i').style.width = `${((xp % 250) / 250) * 100}%`;
+    this.profileEl.querySelector('.profile-xp-label').textContent = `${xp % 250} / 250 XP TO NEXT LEVEL`;
     const stats = this.profileEl.querySelector('.profile-stats');
     stats.textContent = '';
     const fields = [
@@ -394,8 +437,10 @@ export class Menu {
       ['SURVIVAL WINS', profile.stats.eliminationWins], ['RUSH CLEARS', profile.stats.checkpointClears],
       ['GOLD', profile.medals.gold], ['SILVER', profile.medals.silver], ['BRONZE', profile.medals.bronze],
     ];
-    for (const [label, value] of fields) {
+    const statIcons = ['⚑', '★', '🏆', '◷', '♛', '◆', '✦', '⚡', '●', '●', '●'];
+    for (const [index, [label, value]] of fields.entries()) {
       const tile = el('div', 'profile-stat', stats);
+      el('i', 'profile-stat-icon', tile).textContent = statIcons[index];
       el('strong', '', tile).textContent = value;
       el('span', '', tile).textContent = label;
     }
@@ -407,22 +452,29 @@ export class Menu {
       el('strong', '', tile).textContent = unlocked ? definition.name : 'LOCKED';
       el('span', '', tile).textContent = definition.description;
     }
+    this.profileEl.querySelector('.profile-achievement-count').textContent = `${profile.achievements.length} / ${Object.keys(ACHIEVEMENTS).length} UNLOCKED`;
     const history = this.profileEl.querySelector('.profile-history');
     history.textContent = '';
     if (!profile.history.length) el('div', 'profile-empty', history).textContent = 'Finish an event to start your racing history.';
-    for (const event of profile.history.slice(0, 8)) {
+    for (const event of profile.history.slice(0, 3)) {
       const row = el('div', 'profile-event', history);
-      el('strong', '', row).textContent = String(event.type || 'EVENT');
-      el('span', '', row).textContent = `${event.place ? `${event.place}${event.place === 1 ? 'st' : event.place === 2 ? 'nd' : event.place === 3 ? 'rd' : 'th'} · ` : ''}${Number.isFinite(event.time) ? `${event.time.toFixed(2)}s` : `${event.points || 0} pts`}`;
+      el('i', 'profile-event-art', row).textContent = '⚑';
+      const copy = el('div', 'profile-event-copy', row);
+      el('strong', '', copy).textContent = String(event.track || event.type || 'EVENT');
+      el('small', '', copy).textContent = `${String(event.type || 'EVENT')}${event.pilot ? ` · ${event.pilot}` : ''}`;
+      el('b', 'profile-event-place', row).textContent = event.place ? `${event.place}${event.place === 1 ? 'ST' : event.place === 2 ? 'ND' : event.place === 3 ? 'RD' : 'TH'}` : '—';
+      el('span', 'profile-event-time', row).textContent = Number.isFinite(event.time) ? `${event.time.toFixed(2)}s` : `${event.points || 0} pts`;
     }
     this._showOnly(this.profileEl);
   }
 
   _showOnly(elm) {
+    if (elm !== this.selectEl && this.stage) { this.stage.dispose(); this.stage = null; }
+    if (elm !== this.garageEl && this.garageStage) { this.garageStage.dispose(); this.garageStage = null; this._garageArtReady = false; }
     if (elm !== this.loadingEl) this._stopLoadingSequence();
     if (elm !== this.titleEl) this._stopTitleAnimation();
     if (elm !== this.titleEl) this._stopPromptAnimation();
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.classList.toggle('active', s === elm);
+    for (const s of [this.titleEl, this.selectEl, this.garageEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.classList.toggle('active', s === elm);
   }
   showTitle() {
     this.screen = 'title';
@@ -478,8 +530,32 @@ export class Menu {
   showSelect() {
     this.screen = 'select'; this.zone = 'grid';
     this._showOnly(this.selectEl);
+    if (!this.stage && this.stageProvider) {
+      try { this.stage = new SelectionStage(this.selectEl.querySelector('.pv-stage'), this.stageProvider); }
+      catch (error) { console.warn('[menu] 3D preview unavailable', error); }
+    }
     this._setChar(this.charIndex, true);
     this._refreshOpts();
+  }
+  showGarage() {
+    this.screen = 'garage'; this.zone = 'grid';
+    // A saved choice may be locked on a different/new profile. Start on a drivable kart.
+    if (!vehicleUnlocked(VEHICLES[this.vehicleIndex], this.h.getProfile?.())) this.vehicleIndex = 0;
+    this._showOnly(this.garageEl);
+    if (!this.garageStage && this.stageProvider) {
+      try { this.garageStage = new SelectionStage(this.garageEl.querySelector('.garage-stage'), this.stageProvider); }
+      catch (error) { console.warn('[menu] garage preview unavailable', error); }
+    }
+    if (this.garageStage && !this._garageArtReady) {
+      for (let i = 0; i < VEHICLES.length; i++) {
+        try { this.vehicleCards[i].querySelector('img').src = this.garageStage.captureKart(CHARACTERS[this.charIndex], VEHICLES[i]); }
+        catch (error) { console.warn('[menu] kart card preview unavailable', error); break; }
+      }
+      this._garageArtReady = true;
+    }
+    this._refreshGarage();
+    this._refreshOpts();
+    this.h.onScreen?.('garage');
   }
   showPause() { this.screen = 'pause'; this.pauseIndex = 0; this._refreshPause(); this._showOnly(this.pauseEl); }
   showSettings(from = this.screen || 'title') { this._settingsReturn = from === 'pause' ? 'pause' : 'title'; this.screen = 'settings'; this._refreshSettings(); this._showOnly(this.settingsEl); }
@@ -583,14 +659,14 @@ export class Menu {
   }
   _confirmChar() {
     bus.emit('ui:confirm');
-    this.zone = 'opts'; this.optIndex = 5;
     const c = this.cards[this.charIndex].card;
     c.classList.remove('picked'); void c.offsetWidth; c.classList.add('picked');
-    this._refreshFocus();
+    this.showGarage();
   }
   _refreshPreview() {
     if (!this.pv) return;
     const ch = CHARACTERS[this.charIndex];
+    if (this.stage) this.stage.setPilot(ch);
     const url = this.portrait(ch);
     if (url) { this.pv.img.src = url; this.pv.img.style.display = ''; this.pv.initial.style.display = 'none'; }
     else { this.pv.img.style.display = 'none'; this.pv.initial.style.display = ''; this.pv.initial.textContent = ch.name[0]; }
@@ -599,7 +675,7 @@ export class Menu {
     this.pv.swatch.style.background = `linear-gradient(135deg, ${hex(ch.color)} 60%, ${hex(ch.accent)} 60%)`;
     const vehicle = VEHICLES[this.vehicleIndex];
     this.pv.kartLbl.textContent = `${vehicle.name.toUpperCase()} // ${vehicle.role}`;
-    this.pv.stats.innerHTML = STAT_KEYS.map(([k, l]) => `<div class="st big"><span>${l}</span>${statBar(vehicle.stats[k])}</div>`).join('');
+    this.pv.stats.innerHTML = STAT_KEYS.map(([k, l]) => `<div class="st big"><span>${l}</span>${statBar(ch.stats[k])}</div>`).join('');
     this._animatePortraitReveal();
   }
 
@@ -622,33 +698,53 @@ export class Menu {
   }
   _refreshOpts() {
     if (!this.optEls) return;
-    this.optEls[0].querySelector('.opt-val').textContent = VEHICLES[this.vehicleIndex].name.toUpperCase();
-    this.optEls[1].querySelector('.opt-val').textContent = DIFF_LABEL[DIFFS[this.diffIndex]];
-    this.optEls[2].querySelector('.opt-lbl').textContent = this.modeIndex === 3 ? 'GOAL' : this.modeIndex === 4 ? 'GATES' : 'LAPS';
-    this.optEls[2].querySelector('.opt-val').textContent = this.modeIndex === 3 ? 'LAST SURVIVOR' : this.modeIndex === 4 ? `${LAPS[this.lapsIndex] * 4} GATES` : `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
-    this.optEls[2].classList.toggle('locked', this.modeIndex === 3);
-    this.optEls[3].querySelector('.opt-val').textContent = ['QUICK RACE', 'TIME TRIAL', 'GRAND PRIX', 'ELIMINATION', 'CHECKPOINT RUSH'][this.modeIndex];
-    this.optEls[4].querySelector('.opt-val').textContent = TRACKS[this.trackIndex].name.toUpperCase();
-    this.optEls[5].textContent = ['RACE!', 'START TRIAL', 'START CUP', 'SURVIVE!', 'START RUSH'][this.modeIndex];
+    this.optEls[0].querySelector('.opt-val').textContent = DIFF_LABEL[DIFFS[this.diffIndex]];
+    this.optEls[1].querySelector('.opt-lbl').textContent = this.modeIndex === 3 ? 'GOAL' : this.modeIndex === 4 ? 'GATES' : 'LAPS';
+    this.optEls[1].querySelector('.opt-val').textContent = this.modeIndex === 3 ? 'LAST SURVIVOR' : this.modeIndex === 4 ? `${LAPS[this.lapsIndex] * 4} GATES` : `${LAPS[this.lapsIndex]} LAP${LAPS[this.lapsIndex] > 1 ? 'S' : ''}`;
+    this.optEls[1].classList.toggle('locked', this.modeIndex === 3);
+    this.optEls[2].querySelector('.opt-val').textContent = ['QUICK RACE', 'TIME TRIAL', 'GRAND PRIX', 'ELIMINATION', 'CHECKPOINT RUSH'][this.modeIndex];
+    this.optEls[3].querySelector('.opt-val').textContent = TRACKS[this.trackIndex].name.toUpperCase();
+    this.optEls[4].textContent = ['RACE!', 'START TRIAL', 'START CUP', 'SURVIVE!', 'START RUSH'][this.modeIndex];
+  }
+  _refreshGarage() {
+    const vehicle = VEHICLES[this.vehicleIndex];
+    const profile = this.h.getProfile?.();
+    const level = garageLevel(profile);
+    const unlocked = vehicleUnlocked(vehicle, profile);
+    this.vehicleCards.forEach((card, index) => {
+      const candidate = VEHICLES[index];
+      const unlocked = vehicleUnlocked(candidate, profile);
+      card.classList.toggle('selected', index === this.vehicleIndex);
+      card.classList.toggle('is-locked', !unlocked);
+      card.querySelector('.garage-card-state').textContent = unlocked ? 'READY' : `UNLOCK AT LVL ${VEHICLE_LEVELS[candidate.id]}`;
+      card.setAttribute('aria-label', `${candidate.name}, ${unlocked ? 'unlocked' : `unlocks at level ${VEHICLE_LEVELS[candidate.id]}`}`);
+    });
+    this.garageEl.querySelector('.garage-name').textContent = vehicle.name.toUpperCase();
+    this.garageEl.querySelector('.garage-role').textContent = unlocked ? `${vehicle.role} // LEVEL ${level}` : `${vehicle.role} // UNLOCK AT LEVEL ${VEHICLE_LEVELS[vehicle.id]}`;
+    this.garageEl.querySelector('.garage-stats').innerHTML = STAT_KEYS.map(([key, label]) => `<div class="st big"><span>${label}</span>${statBar(vehicle.stats[key])}</div>`).join('');
+    this.garageEl.querySelector('.garage-lock-note').textContent = unlocked ? 'VEHICLE READY' : `LOCKED · REACH LEVEL ${VEHICLE_LEVELS[vehicle.id]} TO DRIVE`;
+    this.garageEl.querySelector('.race-btn').disabled = !unlocked;
+    this.garageStage?.setPilot(CHARACTERS[this.charIndex], vehicle);
+    this._refreshFocus();
   }
   _refreshFocus() {
-    this.cards.forEach((c, j) => c.card.classList.toggle('focus', this.zone === 'grid' && j === this.charIndex));
-    this.optEls.forEach((o, j) => o.classList.toggle('focus', this.zone === 'opts' && j === this.optIndex));
+    this.cards.forEach((c, j) => c.card.classList.toggle('focus', this.screen === 'select' && this.zone === 'grid' && j === this.charIndex));
+    this.vehicleCards?.forEach((c, j) => c.classList.toggle('focus', this.screen === 'garage' && this.zone === 'grid' && j === this.vehicleIndex));
+    this.optEls?.forEach((o, j) => o.classList.toggle('focus', this.screen === 'garage' && this.zone === 'opts' && j + 1 === this.optIndex));
   }
   _changeOpt(d) {
-    if (this.optIndex === 0) { this.vehicleIndex = (this.vehicleIndex + d + VEHICLES.length) % VEHICLES.length; this._refreshPreview(); }
-    else if (this.optIndex === 1) this.diffIndex = (this.diffIndex + d + DIFFS.length) % DIFFS.length;
+    if (this.optIndex === 1) this.diffIndex = (this.diffIndex + d + DIFFS.length) % DIFFS.length;
     else if (this.optIndex === 2) { if (this.modeIndex === 3) return; this.lapsIndex = (this.lapsIndex + d + LAPS.length) % LAPS.length; }
     else if (this.optIndex === 3) this.modeIndex = (this.modeIndex + d + MODES.length) % MODES.length;
     else if (this.optIndex === 4) this.trackIndex = (this.trackIndex + d + TRACKS.length) % TRACKS.length;
     else return;
     bus.emit('ui:move');
     this._refreshOpts(); this._refreshFocus();
-    const v = this.optEls[this.optIndex].querySelector('.opt-val');
+    const v = this.optEls[this.optIndex - 1].querySelector('.opt-val');
     v.classList.remove('bump'); void v.offsetWidth; v.classList.add('bump');
   }
   _start() {
-    if (this.screen !== 'select') return;
+    if (this.screen !== 'garage' || !vehicleUnlocked(VEHICLES[this.vehicleIndex], this.h.getProfile?.())) return;
     try { localStorage.setItem('nrr-settings', JSON.stringify({ charIndex: this.charIndex, vehicleIndex: this.vehicleIndex, diffIndex: this.diffIndex, lapsIndex: this.lapsIndex, modeIndex: this.modeIndex, trackIndex: this.trackIndex })); } catch (e) { /* ignore */ }
     bus.emit('ui:confirm');
     this.h.onStart && this.h.onStart(this.settings);
@@ -657,8 +753,8 @@ export class Menu {
     try {
       const g = this.selectEl.querySelector('.sel-grid');
       const n = getComputedStyle(g).gridTemplateColumns.split(' ').filter(Boolean).length;
-      return n >= 1 && n <= 8 ? n : 2;
-    } catch (e) { return 2; }
+      return n >= 1 && n <= 8 ? n : 4;
+    } catch (e) { return 4; }
   }
   _refreshPause() { this.pauseBtns.forEach((b, i) => b.classList.toggle('focus', i === this.pauseIndex)); }
   _pauseAct(a) {
@@ -682,23 +778,32 @@ export class Menu {
       const up = c === 'ArrowUp' || c === 'KeyW', down = c === 'ArrowDown' || c === 'KeyS';
       const left = c === 'ArrowLeft' || c === 'KeyA', right = c === 'ArrowRight' || c === 'KeyD';
       if (up || down || left || right || isEnter) e.preventDefault();
-      if (c === 'Escape' || c === 'Backspace') {
-        if (this.zone === 'opts') { this.zone = 'grid'; this._refreshFocus(); bus.emit('ui:back'); }
-        else this._toTitle();
-        return;
-      }
-      if (this.zone === 'grid') {
+      if (c === 'Escape' || c === 'Backspace') { this._toTitle(); return; }
+      {
         const cols = this._gridCols(), i = this.charIndex, col = i % cols, row = Math.floor(i / cols), rows = Math.ceil(CHARACTERS.length / cols);
         if (left) this._setChar(col === 0 ? i + cols - 1 : i - 1);
-        else if (right) {
-          if (col === cols - 1) { this.zone = 'opts'; this.optIndex = 0; bus.emit('ui:move'); this._refreshFocus(); }
-          else this._setChar(i + 1);
-        } else if (up) this._setChar(((row - 1 + rows) % rows) * cols + col);
+        else if (right) this._setChar(col === cols - 1 ? i - cols + 1 : i + 1);
+        else if (up) this._setChar(((row - 1 + rows) % rows) * cols + col);
         else if (down) this._setChar(((row + 1) % rows) * cols + col);
         else if (isEnter && !e.repeat) this._confirmChar();
+      }
+      return;
+    }
+    if (this.screen === 'garage') {
+      const up = c === 'ArrowUp' || c === 'KeyW', down = c === 'ArrowDown' || c === 'KeyS';
+      const left = c === 'ArrowLeft' || c === 'KeyA', right = c === 'ArrowRight' || c === 'KeyD';
+      if (up || down || left || right || isEnter) e.preventDefault();
+      if (c === 'Escape' || c === 'Backspace') { this.showSelect(); return; }
+      if (this.zone === 'grid') {
+        if (left) this.vehicleIndex = (this.vehicleIndex + VEHICLES.length - 1) % VEHICLES.length;
+        else if (right) this.vehicleIndex = (this.vehicleIndex + 1) % VEHICLES.length;
+        else if (up) this.vehicleIndex = (this.vehicleIndex + VEHICLES.length - 3) % VEHICLES.length;
+        else if (down) this.vehicleIndex = (this.vehicleIndex + 3) % VEHICLES.length;
+        else if (isEnter && !e.repeat) { this.zone = 'opts'; this.optIndex = 1; this._refreshFocus(); return; }
+        this._refreshGarage();
       } else {
         if (up) {
-          if (this.optIndex === 0) { this.zone = 'grid'; } else this.optIndex--;
+          if (this.optIndex === 1) { this.zone = 'grid'; } else this.optIndex--;
           bus.emit('ui:move'); this._refreshFocus();
         } else if (down) { this.optIndex = Math.min(5, this.optIndex + 1); bus.emit('ui:move'); this._refreshFocus(); }
         else if (left) {
@@ -735,7 +840,7 @@ export class Menu {
       a: b(0), b: b(1), start: b(9),
     };
     const prev = this._pad.prev;
-    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'pause' || this.screen === 'settings' || this.screen === 'profile' || this.screen === 'career' || gameState === 'results';
+    const inMenu = this.screen === 'title' || this.screen === 'select' || this.screen === 'garage' || this.screen === 'pause' || this.screen === 'settings' || this.screen === 'profile' || this.screen === 'career' || gameState === 'results';
     const fire = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true }));
     if (inMenu) {
       const dirs = [['up', 'ArrowUp'], ['down', 'ArrowDown'], ['left', 'ArrowLeft'], ['right', 'ArrowRight']];
@@ -754,11 +859,13 @@ export class Menu {
   }
 
   dispose() {
+    if (this.stage) { this.stage.dispose(); this.stage = null; }
+    if (this.garageStage) { this.garageStage.dispose(); this.garageStage = null; }
     this._stopLoadingSequence();
     this._stopTitleAnimation();
     this._stopPromptAnimation();
     if (this._backgroundTween) this._backgroundTween.kill();
     window.removeEventListener('keydown', this._onKey);
-    for (const s of [this.titleEl, this.selectEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.remove();
+    for (const s of [this.titleEl, this.selectEl, this.garageEl, this.pauseEl, this.settingsEl, this.profileEl, this.careerEl, this.loadingEl]) s.remove();
   }
 }

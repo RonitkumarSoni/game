@@ -47,7 +47,9 @@ function paint(geo, color) {
 const stripUV = (g) => { g.deleteAttribute('uv'); return g; };
 
 export function createEnvironment(scene, renderer, root, L) {
-  const ember = L.theme === 'ember';
+  const chrome = L.theme === 'chromewave';
+  const skyforge = L.theme === 'skyforge';
+  const ember = L.theme === 'ember' || chrome;
   const disposables = [];
   const keep = (x) => { disposables.push(x); return x; };
   const uniforms = { uTime: { value: 0 } };
@@ -55,10 +57,10 @@ export function createEnvironment(scene, renderer, root, L) {
 
   const SUN_DIR = new THREE.Vector3(0.32, 0.78, -0.54).normalize();
   const COL = {
-    top: new THREE.Color(ember ? 0x482441 : 0x2f7fe0),
-    horizon: new THREE.Color(ember ? 0xe28b66 : 0xcfe8fb),
-    bottom: new THREE.Color(ember ? 0x7d3949 : 0x9cc9ea),
-    sun: new THREE.Color(ember ? 0xffb66b : 0xfff2cf),
+    top: new THREE.Color(chrome ? 0x19133e : skyforge ? 0x2865ad : ember ? 0x482441 : 0x2f7fe0),
+    horizon: new THREE.Color(chrome ? 0xb252cf : skyforge ? 0xe5f5ff : ember ? 0xe28b66 : 0xcfe8fb),
+    bottom: new THREE.Color(chrome ? 0x422269 : skyforge ? 0xa6cced : ember ? 0x7d3949 : 0x9cc9ea),
+    sun: new THREE.Color(chrome ? 0xff78e2 : skyforge ? 0xffffff : ember ? 0xffb66b : 0xfff2cf),
   };
 
   // island centre
@@ -101,30 +103,16 @@ export function createEnvironment(scene, renderer, root, L) {
   };
   root.add(makeSky());
 
-  // env map from the sky for PBR materials (karts)
-  let envRT = null;
-  const prevEnv = scene.environment, prevBg = scene.background, prevFog = scene.fog;
-  try {
-    if (renderer && renderer.isWebGLRenderer) {
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      const envScene = new THREE.Scene();
-      envScene.add(makeSky());
-      const ground = new THREE.Mesh(new THREE.CircleGeometry(400, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: ember ? 0x563f43 : 0x5d9a44 }));
-      ground.position.y = -20; envScene.add(ground);
-      envRT = pmrem.fromScene(envScene, 0.02, 0.1, 2000);
-      ground.geometry.dispose(); ground.material.dispose();
-      pmrem.dispose();
-      scene.environment = envRT.texture;
-      if ('environmentIntensity' in scene) scene.environmentIntensity = 0.55;
-    }
-  } catch (e) { envRT = null; }
+  // Kart paint already uses its own shared studio environment map. Generating a second
+  // full-scene PMREM here stalls the main thread for seconds on some GPUs.
+  const prevBg = scene.background, prevFog = scene.fog;
   scene.background = COL.horizon.clone();
   scene.fog = new THREE.Fog(COL.horizon.clone(), 380, 1550);
 
   // ------------------------------------------------------------------ lights
-  const hemi = new THREE.HemisphereLight(ember ? 0xffb596 : 0xcfe8ff, ember ? 0x4d303c : 0x7aa05a, 1.25);
+  const hemi = new THREE.HemisphereLight(chrome ? 0xdbb4ff : L.theme === 'ember' ? 0xffb596 : 0xcfe8ff, ember ? 0x4d303c : skyforge ? 0x7595b3 : 0x7aa05a, 1.25);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(ember ? 0xffbd8a : 0xfff0d8, 2.8);
+  const sun = new THREE.DirectionalLight(chrome ? 0xffb9ee : skyforge ? 0xf0f8ff : ember ? 0xffbd8a : 0xfff0d8, 2.8);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const SH = 75;
@@ -192,9 +180,9 @@ export function createEnvironment(scene, renderer, root, L) {
   tGeo.computeVertexNormals();
   {
     const c = new THREE.Color();
-    const sandWet = new THREE.Color(ember ? 0x683843 : 0xcdb277), sand = new THREE.Color(ember ? 0x8d584d : 0xf1dca0);
-    const g1 = new THREE.Color(ember ? 0x463842 : 0x58ad37), g2 = new THREE.Color(ember ? 0x79504b : 0x8fd352), g3 = new THREE.Color(ember ? 0x302b38 : 0x3f8a2e);
-    const rock = new THREE.Color(ember ? 0x5d4a52 : 0x9c9588), under = new THREE.Color(ember ? 0x402e39 : 0x8fae8f);
+    const sandWet = new THREE.Color(skyforge ? 0x638cac : ember ? 0x683843 : 0xcdb277), sand = new THREE.Color(skyforge ? 0xc5e6f2 : ember ? 0x8d584d : 0xf1dca0);
+    const g1 = new THREE.Color(skyforge ? 0xb7d5df : ember ? 0x463842 : 0x58ad37), g2 = new THREE.Color(skyforge ? 0xe9f7fb : ember ? 0x79504b : 0x8fd352), g3 = new THREE.Color(skyforge ? 0x789bb7 : ember ? 0x302b38 : 0x3f8a2e);
+    const rock = new THREE.Color(skyforge ? 0x718da9 : ember ? 0x5d4a52 : 0x9c9588), under = new THREE.Color(skyforge ? 0x4b7da2 : ember ? 0x402e39 : 0x8fae8f);
     const nrm = tGeo.attributes.normal;
     for (let k = 0; k < tPos.count; k++) {
       const x = tPos.getX(k), y = tPos.getY(k), z = tPos.getZ(k);
@@ -249,9 +237,9 @@ export function createEnvironment(scene, renderer, root, L) {
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: { value: 0 },
       uSunDir: { value: SUN_DIR.clone() },
-      uDeep: { value: new THREE.Color(ember ? 0xa51e27 : 0x0f6fb3) },
-      uShallow: { value: new THREE.Color(ember ? 0xff672d : 0x3fd6d0) },
-      uSky: { value: new THREE.Color(ember ? 0xffa452 : 0xc4e6ff) },
+      uDeep: { value: new THREE.Color(skyforge ? 0x497cac : ember ? 0xa51e27 : 0x0f6fb3) },
+      uShallow: { value: new THREE.Color(skyforge ? 0xa5eaff : ember ? 0xff672d : 0x3fd6d0) },
+      uSky: { value: new THREE.Color(skyforge ? 0xecfaff : ember ? 0xffa452 : 0xc4e6ff) },
       uFoam: { value: new THREE.Color(ember ? 0xffce58 : 0xffffff) },
       uDepth: { value: null },
       uBounds: { value: new THREE.Vector3(cx - T_SIZE / 2, cz - T_SIZE / 2, T_SIZE) },
@@ -328,7 +316,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const rnd = mulberry(99);
     const geos = [];
     const haze = COL.horizon.clone();
-    const grass = new THREE.Color(ember ? 0x453b42 : 0x4f8f45), rockC = new THREE.Color(ember ? 0x71525a : 0x8b8f9c), snow = new THREE.Color(ember ? 0xbd7763 : 0xf6f9ff);
+    const grass = new THREE.Color(chrome ? 0x393252 : skyforge ? 0x9ebec7 : ember ? 0x453b42 : 0x4f8f45), rockC = new THREE.Color(chrome ? 0x625780 : ember ? 0x71525a : 0x8b8f9c), snow = new THREE.Color(chrome ? 0xa976bc : ember ? 0xbd7763 : 0xf6f9ff);
     const count = 22;
     for (let m = 0; m < count; m++) {
       const ang = (m / count) * Math.PI * 2 + rnd() * 0.2;
@@ -441,7 +429,7 @@ export function createEnvironment(scene, renderer, root, L) {
     ];
     const standGeos = [];
     const crowd = [];
-    const seatCols = [0x1e6fe8, 0xf7f7f7, 0xe8322f, 0xffd21f];
+    const seatCols = skyforge ? [0x236092, 0xb9e5f3, 0x35b9de, 0xe9faff] : [0x1e6fe8, 0xf7f7f7, 0xe8322f, 0xffd21f];
     const SEG_LEN = 10;
     for (const def of defs) {
       const i0 = ((nSteps(def.from) % L.N) + L.N) % L.N, i1 = ((nSteps(def.to) % L.N) + L.N) % L.N;
@@ -463,7 +451,7 @@ export function createEnvironment(scene, renderer, root, L) {
           return g;
         };
         // front wall
-        standGeos.push(place(paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.05, 4, 0.5)), 0xdad7cf), 0, -1, 0));
+        standGeos.push(place(paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.05, 4, 0.5)), skyforge ? 0x557794 : 0xdad7cf), 0, -1, 0));
         for (let t = 0; t < def.tiers; t++) {
           const top = 1 + t * 0.85;
           standGeos.push(place(paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.05, top + 3, 1.6)), seatCols[(t + (k / segSamples | 0)) % 4]), 0, (top - 3) / 2, 0.5 + t * 1.6 + 0.8));
@@ -480,9 +468,9 @@ export function createEnvironment(scene, renderer, root, L) {
         }
         const backZ = 0.5 + def.tiers * 1.6 + 0.3;
         const roofY = 1 + def.tiers * 0.85 + 4.2;
-        standGeos.push(place(paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.05, roofY + 3, 0.6)), 0xcfcac0), 0, (roofY - 3) / 2, backZ));
+        standGeos.push(place(paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.05, roofY + 3, 0.6)), skyforge ? 0x5e83a0 : 0xcfcac0), 0, (roofY - 3) / 2, backZ));
         // roof (sloped canopy) + pillars
-        const roof = paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.1, 0.4, def.tiers * 1.6 + 3)), (k / segSamples | 0) % 2 ? 0xe8322f : 0xffffff);
+        const roof = paint(stripUV(new THREE.BoxGeometry(SEG_LEN + 0.1, 0.4, def.tiers * 1.6 + 3)), skyforge ? ((k / segSamples | 0) % 2 ? 0x24618b : 0xa9e7f4) : ((k / segSamples | 0) % 2 ? 0xe8322f : 0xffffff));
         roof.rotateX(-0.08);
         standGeos.push(place(roof, 0, roofY, backZ - (def.tiers * 1.6 + 3) / 2 + 0.3));
         standGeos.push(place(paint(stripUV(new THREE.CylinderGeometry(0.18, 0.18, roofY - 1, 6)), 0x9aa0a8), -SEG_LEN / 2 + 0.3, (roofY - 1) / 2 + 1, 0.5));
@@ -507,7 +495,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const headMat = keep(withTime(new THREE.MeshLambertMaterial(), bounce));
     const bodies = new THREE.InstancedMesh(bodyGeo, bodyMat, crowd.length);
     const heads = new THREE.InstancedMesh(headGeo, headMat, crowd.length);
-    const shirt = [0xe53935, 0x43a047, 0x1e88e5, 0xfdd835, 0x8e24aa, 0xff7043, 0x00acc1, 0xf06292, 0xffffff];
+    const shirt = skyforge ? [0x1f74ab, 0x42badd, 0xe8f6ff, 0x5176c3, 0x1d416c] : [0xe53935, 0x43a047, 0x1e88e5, 0xfdd835, 0x8e24aa, 0xff7043, 0x00acc1, 0xf06292, 0xffffff];
     const skin = [0xffd2a6, 0xf1c08b, 0xc68a5a, 0x8d5a3b, 0xffe0bd];
     const m4 = new THREE.Matrix4(), c = new THREE.Color();
     crowd.forEach((cr, k) => {
@@ -590,7 +578,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const round = [], pines = [], palms = [], rocks = [], flowers = [], tufts = [], bushes = [];
     const R = ISLAND_R * 0.93;
     let guard = 0;
-    while ((round.length < 700 || pines.length < 420 || palms.length < 110) && guard++ < 90000) {
+    while ((!skyforge && (round.length < 700 || palms.length < 110) || pines.length < (skyforge ? 520 : 420)) && guard++ < 90000) {
       const a = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * R;
       const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
       const h = natural(x, z);
@@ -602,16 +590,18 @@ export function createEnvironment(scene, renderer, root, L) {
       const beach = h < WATER + 3.2;
       const forest = fbm(x * 0.008 + 11, z * 0.008 - 4, 3);
       if (beach) {
-        if (palms.length < 110 && rnd() < 0.8) palms.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 1.0 + rnd() * 0.45, tilt: (rnd() - 0.5) * 0.3, tilt2: (rnd() - 0.5) * 0.3 });
+        if (!skyforge && palms.length < 110 && rnd() < 0.8) palms.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 1.0 + rnd() * 0.45, tilt: (rnd() - 0.5) * 0.3, tilt2: (rnd() - 0.5) * 0.3 });
         continue;
       }
       if (forest < 0.42 && rnd() < 0.85) continue;
       if (y > 12 || (forest > 0.62 && rnd() < 0.6)) {
-        if (pines.length < 420) pines.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 1.1 + rnd() * 0.9 });
+        if (pines.length < (skyforge ? 520 : 420)) pines.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 1.1 + rnd() * 0.9 });
+      } else if (skyforge) {
+        if (pines.length < 520) pines.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 0.8 + rnd() * 0.7 });
       } else if (round.length < 700) round.push({ x, y: y - 0.3, z, r: rnd() * 6.28, s: 1.0 + rnd() * 0.7, hue: rnd() });
     }
     // palms lining the main straight & lagoon
-    for (let i = 0; i < L.N; i += Math.round(22 / L.ds)) {
+    for (let i = 0; !skyforge && i < L.N; i += Math.round(22 / L.ds)) {
       const nearLake = Math.hypot(L.px[i] - L.lake.x, L.pz[i] - L.lake.z) < L.lake.r + 90;
       if (!nearLake) continue;
       for (const side of [1, -1]) {
@@ -661,7 +651,7 @@ export function createEnvironment(scene, renderer, root, L) {
     const canopyGeo = keep(mergeGeometries(canopyParts)); canopyParts.forEach((g) => g.dispose());
     const trunkMat = flat({ color: 0x8a5a36 });
     const leafMat = flat({ color: 0xffffff });
-    const greens = ember ? [0x543f45, 0x745052, 0x46363f, 0x8a5a4d, 0x65434a, 0x9c6954] : [0x5cb338, 0x76c442, 0x4a9e31, 0x8fd14f, 0x6bbf3d, 0xa5d65a];
+    const greens = skyforge ? [0xb8e5ed, 0xe8faff, 0x8ac1d6, 0xc9eff4] : ember ? [0x543f45, 0x745052, 0x46363f, 0x8a5a4d, 0x65434a, 0x9c6954] : [0x5cb338, 0x76c442, 0x4a9e31, 0x8fd14f, 0x6bbf3d, 0xa5d65a];
     const c = new THREE.Color();
     const allTrees = [...round];
     instanced(trunkGeo, trunkMat, allTrees);
@@ -674,7 +664,7 @@ export function createEnvironment(scene, renderer, root, L) {
       stripUV(new THREE.ConeGeometry(1.5, 2.8, 7).translate(0, 6.9, 0)),
     ];
     const pineGeo = keep(mergeGeometries(pineParts)); pineParts.forEach((g) => g.dispose());
-    const pineGreens = ember ? [0x40343d, 0x65414a, 0x3e3039, 0x81504a] : [0x2f7d3a, 0x3a8f44, 0x286e34, 0x44a04c];
+    const pineGreens = skyforge ? [0x9ec6d9, 0xc6e9ef, 0x85adc5, 0xe4f7fb] : ember ? [0x40343d, 0x65414a, 0x3e3039, 0x81504a] : [0x2f7d3a, 0x3a8f44, 0x286e34, 0x44a04c];
     instanced(pineTrunk, trunkMat, pines);
     instanced(pineGeo, leafMat, pines, { colors: (it, k) => c.setHex(pineGreens[k % pineGreens.length]) });
     // palms: curved trunk + drooping fronds
@@ -716,7 +706,7 @@ export function createEnvironment(scene, renderer, root, L) {
 
   // ------------------------------------------------------------------ lighthouse + boats
   const boats = [];
-  if (!ember) {
+  if (!ember && !skyforge) {
     const dir = new THREE.Vector2(L.lake.x - cx, L.lake.z - cz).normalize();
     // walk outward from the island centre until we find the coast
     let lx = cx, lz = cz;
@@ -766,7 +756,7 @@ export function createEnvironment(scene, renderer, root, L) {
 
   if (ember) {
     const spireGeo = keep(new THREE.ConeGeometry(1, 1, 6, 1));
-    const spireMat = keep(new THREE.MeshStandardMaterial({ color: 0x49343f, roughness: 1, flatShading: true, emissive: 0x431314, emissiveIntensity: 0.3 }));
+    const spireMat = keep(new THREE.MeshStandardMaterial({ color: chrome ? 0x3d3a70 : 0x49343f, roughness: chrome ? 0.45 : 1, flatShading: true, emissive: chrome ? 0x301683 : 0x431314, emissiveIntensity: chrome ? 0.65 : 0.3 }));
     const rnd = mulberry(812);
     const spires = new THREE.InstancedMesh(spireGeo, spireMat, 170);
     const matrix = new THREE.Matrix4();
@@ -788,6 +778,60 @@ export function createEnvironment(scene, renderer, root, L) {
     spires.castShadow = true;
     spires.name = 'ember-spires';
     root.add(spires);
+  }
+
+  if (skyforge) {
+    // A lightweight architectural silhouette: icy crystal fields, illuminated
+    // racing gates and elevated forge platforms. All repeated pieces are instanced
+    // so this biome stays inexpensive on mobile GPUs.
+    const crystalGeo = keep(new THREE.ConeGeometry(1, 1, 5));
+    const crystalMat = keep(new THREE.MeshStandardMaterial({ color: 0x8ee8ff, roughness: 0.22, metalness: 0.55, emissive: 0x145c91, emissiveIntensity: 0.75, flatShading: true }));
+    const plinthGeo = keep(new THREE.CylinderGeometry(1, 1.4, 1, 6));
+    const plinthMat = keep(new THREE.MeshStandardMaterial({ color: 0x293f62, roughness: 0.52, metalness: 0.65 }));
+    const crystalCount = Math.floor(L.N / 26) * 2;
+    const crystals = new THREE.InstancedMesh(crystalGeo, crystalMat, crystalCount);
+    const plinths = new THREE.InstancedMesh(plinthGeo, plinthMat, crystalCount);
+    const matrix = new THREE.Matrix4();
+    const quat = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const rnd = mulberry(2408);
+    let n = 0;
+    for (let i = 34; i < L.N; i += 26) for (const side of [-1, 1]) {
+      const distance = (side > 0 ? L.wallR[i] : L.wallL[i]) + 12 + rnd() * 18;
+      const x = L.px[i] + L.rx[i] * distance * side;
+      const z = L.pz[i] + L.rz[i] * distance * side;
+      const ground = heightAt(x, z);
+      const h = 9 + rnd() * 17;
+      quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * Math.PI * 2);
+      crystals.setMatrixAt(n, matrix.compose(pos.set(x, ground + h * 0.5 + 1, z), quat, scale.set(2.1 + rnd(), h, 2.1 + rnd())));
+      plinths.setMatrixAt(n, matrix.compose(pos.set(x, ground + 0.75, z), quat, scale.set(3.5, 1.5, 3.5)));
+      n++;
+    }
+    crystals.count = n; plinths.count = n;
+    crystals.name = 'skyforge-crystals'; plinths.name = 'skyforge-plinths';
+    root.add(crystals, plinths);
+
+    const gateGeo = keep(new THREE.BoxGeometry(1, 1, 1));
+    const gateMat = keep(new THREE.MeshStandardMaterial({ color: 0x365b81, roughness: 0.3, metalness: 0.8, emissive: 0x1479c4, emissiveIntensity: 0.45 }));
+    const gates = new THREE.InstancedMesh(gateGeo, gateMat, Math.ceil((L.N - 95) / 185) * 3);
+    const gateQuat = new THREE.Quaternion();
+    let g = 0;
+    for (let i = 95; i < L.N; i += 185) {
+      const span = Math.max(L.wallL[i], L.wallR[i]) + 6;
+      const y = L.py[i];
+      for (const side of [-1, 1]) {
+        gates.setMatrixAt(g++, matrix.compose(
+          pos.set(L.px[i] + L.rx[i] * side * span, y + 6, L.pz[i] + L.rz[i] * side * span),
+          gateQuat.identity(), scale.set(1.7, 12, 1.7),
+        ));
+      }
+      gateQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-L.rz[i], L.rx[i]));
+      gates.setMatrixAt(g++, matrix.compose(pos.set(L.px[i], y + 12.4, L.pz[i]), gateQuat, scale.set(span * 2 + 2, 1.3, 1.5)));
+    }
+    gates.count = g;
+    gates.name = 'skyforge-gates';
+    root.add(gates);
   }
 
   // ------------------------------------------------------------------ API
@@ -815,8 +859,6 @@ export function createEnvironment(scene, renderer, root, L) {
       if (sun.shadow && sun.shadow.map) sun.shadow.map.dispose();
       root.traverse((o) => { if (o.isInstancedMesh) o.dispose(); });
       disposables.forEach((d) => d && d.dispose && d.dispose());
-      if (envRT) envRT.dispose();
-      if (scene.environment === (envRT && envRT.texture)) scene.environment = prevEnv || null;
       scene.fog = prevFog || null;
       scene.background = prevBg || null;
     },

@@ -85,7 +85,7 @@ function unlock(profile, id, rewards) {
 
 function addHistory(profile, row) { profile.history.unshift(row); profile.history.length = Math.min(profile.history.length, 20); }
 
-export function recordRace(profile, { mode = 'race', place, time, laps, pilot, round = null } = {}) {
+export function recordRace(profile, { mode = 'race', place, time, laps, pilot, track, round = null } = {}) {
   const p = migrateProfile(profile), rewards = [];
   if (!Number.isInteger(place) || place < 1 || place > 8 || !Number.isFinite(time) || time <= 0) return { profile: p, rewards };
   p.stats.races++;
@@ -94,7 +94,7 @@ export function recordRace(profile, { mode = 'race', place, time, laps, pilot, r
   p.stats.totalLaps += Math.max(0, laps | 0);
   p.stats.totalRaceTime += time;
   p.stats.bestFinish = p.stats.bestFinish === null ? place : Math.min(p.stats.bestFinish, place);
-  addHistory(p, { type: mode === 'grand-prix' ? 'CUP ROUND' : 'QUICK RACE', pilot: String(pilot || ''), place, time, round, at: Date.now() });
+  addHistory(p, { type: mode === 'grand-prix' ? 'CUP ROUND' : 'QUICK RACE', pilot: String(pilot || ''), track: String(track || ''), place, time, round, at: Date.now() });
   unlock(p, 'firstRace', rewards);
   if (place === 1) unlock(p, 'firstWin', rewards);
   if (place <= 3) unlock(p, 'podium', rewards);
@@ -103,11 +103,11 @@ export function recordRace(profile, { mode = 'race', place, time, laps, pilot, r
   return { profile: p, rewards };
 }
 
-export function recordTrial(profile, { time, pilot, newBest = false } = {}) {
+export function recordTrial(profile, { time, pilot, track, newBest = false } = {}) {
   const p = migrateProfile(profile), rewards = [];
   if (!Number.isFinite(time) || time <= 0) return { profile: p, rewards };
   p.stats.trialRuns++;
-  addHistory(p, { type: 'TIME TRIAL', pilot: String(pilot || ''), time, at: Date.now() });
+  addHistory(p, { type: 'TIME TRIAL', pilot: String(pilot || ''), track: String(track || ''), time, at: Date.now() });
   unlock(p, 'firstTrial', rewards);
   if (newBest) unlock(p, 'trialRecord', rewards);
   rewards.push(...claimCareer(p));
@@ -129,7 +129,7 @@ export function recordCup(profile, { seed, rank, points } = {}) {
   return { profile: p, rewards };
 }
 
-export function recordArcade(profile, { mode, success, place, time, gates = 0, pilot } = {}) {
+export function recordArcade(profile, { mode, success, place, time, gates = 0, pilot, track } = {}) {
   const p = migrateProfile(profile), rewards = [];
   if (!['elimination', 'checkpoint-rush'].includes(mode) || !Number.isFinite(time) || time <= 0) return { profile: p, rewards };
   if (mode === 'elimination') {
@@ -139,7 +139,7 @@ export function recordArcade(profile, { mode, success, place, time, gates = 0, p
     p.stats.checkpointRuns++;
     if (success) { p.stats.checkpointClears++; unlock(p, 'gateRunner', rewards); }
   }
-  addHistory(p, { type: mode === 'elimination' ? 'ELIMINATION' : 'CHECKPOINT RUSH', pilot: String(pilot || ''), place, time, gates: number(gates), success: !!success, at: Date.now() });
+  addHistory(p, { type: mode === 'elimination' ? 'ELIMINATION' : 'CHECKPOINT RUSH', pilot: String(pilot || ''), track: String(track || ''), place, time, gates: number(gates), success: !!success, at: Date.now() });
   return { profile: p, rewards };
 }
 

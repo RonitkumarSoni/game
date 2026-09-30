@@ -111,9 +111,9 @@ function fallbackKartModel(character) {
   }
   return { root, anchors, animate() {}, setShrunk(s) { root.scale.setScalar(s); }, dispose() { body.geometry.dispose(); mat.dispose(); } };
 }
-function makeKartModel(character) {
+function makeKartModel(character, vehicle) {
   if (mods.models && mods.models.createKartModel) {
-    try { return mods.models.createKartModel(character); } catch (e) { report('models.createKartModel', e); }
+    try { return mods.models.createKartModel(character, vehicle); } catch (e) { report('models.createKartModel', e); }
   }
   return fallbackKartModel(character);
 }
@@ -163,7 +163,7 @@ const menu = new Menu(uiRoot, {
   onSettings: (settings) => applySettings(settings),
   getProfile: () => profile,
   onEquipTitle: (title) => { profile = equipTitle(profile, title); saveProfile(profile); },
-  onScreen: (s) => { setState(s === 'select' ? 'select' : 'title'); },
+  onScreen: (s) => { setState(s === 'select' || s === 'garage' ? 'select' : 'title'); },
 });
 let input = null;
 
@@ -241,11 +241,11 @@ const PLAYABLE_MODES = new Set(['race', 'time-trial', 'grand-prix', 'elimination
 // ---------------------------------------------------------------------------------------------
 function shuffle(a, rng) { for (let i = a.length - 1; i > 0; i--) { const j = rng.int(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
-function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = 'normal', laps = RACE.laps, seed = 'attract', trackId = 'nova-harbor' }) {
+function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = 'normal', laps = RACE.laps, seed = 'attract', trackId = 'nova-harbor' }, reuse = null) {
   if (!mods.track || !mods.track.createTrack) throw new Error('track.js unavailable');
   if (!mods.kart || !mods.kart.Kart) throw new Error('kart.js unavailable');
-  const w = { mode, difficulty, laps, seed, rng: new RaceRandom(seed), karts: [], ais: [], playerAI: null, player: null, scene: new THREE.Scene() };
-  w.track = mods.track.createTrack(w.scene, renderer, trackId);
+  const w = { mode, difficulty, laps, seed, rng: new RaceRandom(seed), karts: [], ais: [], playerAI: null, player: null, scene: reuse?.scene || new THREE.Scene() };
+  w.track = reuse?.track || mods.track.createTrack(w.scene, renderer, trackId);
 
   // roster: attract mode = every character in order (kart index == character index)
   let chars;
@@ -264,7 +264,7 @@ function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = '
     const character = chars[i % chars.length];
     const isPlayer = playable && i === 0;
     const vehicle = VEHICLES[isPlayer ? vehicleIndex % VEHICLES.length : i % VEHICLES.length];
-    const model = makeKartModel(character);
+    const model = makeKartModel(character, vehicle);
     const kart = new Kart({ scene: w.scene, track: w.track, character, vehicle, isPlayer, index: i, model });
     w.karts.push(kart);
     if (isPlayer) w.player = kart;
@@ -297,7 +297,7 @@ function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = '
   if ((mode === 'race' || mode === 'grand-prix') && mods.items && mods.items.ItemSystem) w.items = safe('items.ctor', () => new mods.items.ItemSystem({ scene: w.scene, track: w.track, karts: w.karts, random: () => itemRng.next() }));
   const eventRng = w.rng.fork('rift-events');
   w.riftEvents = new RiftEventManager({ scene: w.scene, track: w.track, karts: w.karts, random: () => eventRng.next(), enabled: mode === 'race' || mode === 'grand-prix' });
-  if (mods.effects && mods.effects.Effects) w.effects = safe('effects.ctor', () => new mods.effects.Effects(w.scene, camera));
+  if (mods.effects && mods.effects.Effects) w.effects = safe('effects.ctor', () => new mods.effects.Effects(w.scene, camera, w.track.theme));
   w.chase = (mods.camera && mods.camera.ChaseCamera && safe('camera.ctor', () => new mods.camera.ChaseCamera(camera))) || new FallbackCamera(camera);
   w.chase.shakeEnabled = menu.userSettings.cameraShake !== false && menu.userSettings.reducedMotion !== true;
   if (['chase', 'hood', 'wide'].includes(menu.userSettings.cameraView)) w.chase.viewMode = menu.userSettings.cameraView;
@@ -308,22 +308,23 @@ function buildWorld({ mode, characterIndex = 0, vehicleIndex = 0, difficulty = '
   return w;
 }
 
-function disposeWorld() {
+function disposeWorld({ keepTrack = false } = {}) {
   const w = world;
   world = null;
   renderPass.scene = fallbackScene;
-  if (!w) return;
+  if (!w) return null;
+  const reuse = keepTrack && w.track ? { scene: w.scene, track: w.track } : null;
   safe('dispose.items', () => w.items && w.items.dispose && w.items.dispose());
   safe('dispose.effects', () => w.effects && w.effects.dispose && w.effects.dispose());
   safe('dispose.riftEvents', () => w.riftEvents && w.riftEvents.dispose());
   for (const k of w.karts) safe('dispose.kart', () => k.dispose && k.dispose());
-  safe('dispose.track', () => w.track && w.track.dispose && w.track.dispose());
+  if (!reuse) safe('dispose.track', () => w.track && w.track.dispose && w.track.dispose());
   safe('dispose.race', () => w.race && w.race.dispose());
   safe('dispose.ai', () => { for (const a of [...w.ais, w.playerAI]) a && a.dispose && a.dispose(); });
   safe('dispose.chase', () => w.chase && w.chase.dispose && w.chase.dispose());
   safe('dispose.ghost', () => w.ghostVisual?.dispose());
   // sweep anything left in the scene graph
-  safe('dispose.scene', () => {
+  if (!reuse) safe('dispose.scene', () => {
     const seen = new Set();
     const dispTex = (m) => {
       for (const key in m) {
@@ -341,16 +342,17 @@ function disposeWorld() {
     if (w.scene.environment && w.scene.environment.isTexture) w.scene.environment.dispose();
     w.scene.clear();
   });
-  renderer.renderLists.dispose();
+  if (!reuse) renderer.renderLists.dispose();
+  return reuse;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Flow
 // ---------------------------------------------------------------------------------------------
 function buildAttract() {
-  disposeWorld();
+  const reuse = disposeWorld({ keepTrack: world?.track?.id === 'nova-harbor' });
   try {
-    world = buildWorld({ mode: 'attract' });
+    world = buildWorld({ mode: 'attract' }, reuse);
     world.race.startImmediately();
     // stagger: let them drive for a few seconds instantly so the title shows a spread-out pack
     attractCam.targetIndex = 0; attractCam.switchT = 0;
@@ -395,9 +397,9 @@ function startRace(settings, { continuation = false, retry = false } = {}) {
   audio.stopMusic();
   setState('loading');
   setTimeout(() => {
-    disposeWorld();
+    const reuse = disposeWorld({ keepTrack: world?.track?.id === lastSettings.trackId });
     try {
-      world = buildWorld({ ...lastSettings, mode: PLAYABLE_MODES.has(lastSettings.mode) ? lastSettings.mode : 'race' });
+      world = buildWorld({ ...lastSettings, mode: PLAYABLE_MODES.has(lastSettings.mode) ? lastSettings.mode : 'race' }, reuse);
     } catch (e) {
       report('buildWorld', e);
       menu.showLoading('RACE FAILED TO LOAD — SEE CONSOLE');
@@ -505,10 +507,10 @@ bus.on('race:end', (d) => {
   let rewards = [];
   if (playerResult) {
     const update = world.mode === 'time-trial'
-      ? recordTrial(profile, { time: playerResult.time, pilot: playerResult.character?.name, newBest: trialRecordThisRun })
+      ? recordTrial(profile, { time: playerResult.time, pilot: playerResult.character?.name, track: world.track.name, newBest: trialRecordThisRun })
       : world.arcade
-        ? recordArcade(profile, { mode: world.mode, success: world.arcade.success, place: playerResult.place, time: playerResult.time, gates: world.arcade.gates, pilot: playerResult.character?.name })
-        : recordRace(profile, { mode: world.mode, place: playerResult.place, time: playerResult.time, laps: world.race.laps, pilot: playerResult.character?.name, round: championship?.roundIndex ?? null });
+        ? recordArcade(profile, { mode: world.mode, success: world.arcade.success, place: playerResult.place, time: playerResult.time, gates: world.arcade.gates, pilot: playerResult.character?.name, track: world.track.name })
+        : recordRace(profile, { mode: world.mode, place: playerResult.place, time: playerResult.time, laps: world.race.laps, pilot: playerResult.character?.name, track: world.track.name, round: championship?.roundIndex ?? null });
     profile = update.profile;
     rewards.push(...update.rewards);
     if (world.mode === 'grand-prix' && championship?.complete) {
@@ -767,11 +769,12 @@ function simulate(w, dt) {
 function frame() {
   requestAnimationFrame(frame);
   const rawDt = clock.getDelta();
-  const dt = Math.min(rawDt, 1 / 30);
+  const dt = Math.min(rawDt, 0.1);
   safe('menu.update', () => menu.update(rawDt, resultsShown ? 'results' : state));
   performanceGuard.update(Math.min(rawDt, 0.25), state === 'racing');
 
   const w = world;
+  const renderOffsets = [];
   if (w) {
     const running = state !== 'paused' && state !== 'loading' && state !== 'boot';
     if (running) {
@@ -787,6 +790,22 @@ function frame() {
     } else {
       // Pausing must freeze time completely rather than replaying the paused duration on resume.
       simAccumulator = 0;
+    }
+
+    // Render a fraction of a physics step ahead so uneven display frames do not
+    // alternate between a stationary kart and a double-length jump. Restore the
+    // authoritative positions immediately after rendering; collisions and race
+    // progress continue to use fixed-step simulation coordinates.
+    const renderAlpha = running ? Math.min(simAccumulator / SIM_STEP, 1) : 0;
+    if (renderAlpha > 0 && running) {
+      for (const kart of w.karts) {
+        if (kart.eliminated || !kart.velocity || !kart.position) continue;
+        const vx = kart.velocity.x * renderAlpha * SIM_STEP;
+        const vy = kart.velocity.y * renderAlpha * SIM_STEP;
+        const vz = kart.velocity.z * renderAlpha * SIM_STEP;
+        kart.position.x += vx; kart.position.y += vy; kart.position.z += vz;
+        renderOffsets.push([kart, vx, vy, vz]);
+      }
     }
 
     if (PLAYABLE_MODES.has(w.mode) && w.player) {
@@ -809,6 +828,11 @@ function frame() {
   }
 
   try { composer.render(dt); } catch (e) { report('render', e); }
+  if (w && renderOffsets) {
+    for (const [kart, vx, vy, vz] of renderOffsets) {
+      kart.position.x -= vx; kart.position.y -= vy; kart.position.z -= vz;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -829,6 +853,7 @@ async function boot() {
     safe('portraits', () => menu.setPortraitProvider(fn));
     hud.setPortraitProvider(fn);
   }
+  if (mods.models?.createKartModel) menu.stageProvider = mods.models.createKartModel;
   buildAttract();
   menu.showTitle();
   if (profileLoad.status === 'recovered') hud.toast('PROFILE RECOVERED · ORIGINAL BACKUP SAVED');

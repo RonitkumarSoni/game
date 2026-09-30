@@ -81,6 +81,13 @@ export class Kart {
     this.object3D.add(this.tiltGroup);
     this.tiltGroup.add(this.bodyGroup);
     if (this.model?.root) this.bodyGroup.add(this.model.root);
+    this.shieldVisual = new THREE.Mesh(
+      new THREE.SphereGeometry(2.25, 16, 10),
+      new THREE.MeshBasicMaterial({ color: 0x6ddfff, transparent: true, opacity: 0.19, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.shieldVisual.position.y = 1.15;
+    this.shieldVisual.visible = false;
+    this.bodyGroup.add(this.shieldVisual);
     scene?.add?.(this.object3D);
 
     this.position = this.object3D.position;
@@ -159,6 +166,7 @@ export class Kart {
     this.boostStrength = 1;
     this.boostSource = null;
     this.starTimer = 0;
+    this.shieldTimer = 0;
     this.shrinkTimer = 0;
     this.spinTimer = 0;
     this.spinDuration = 1;
@@ -249,9 +257,21 @@ export class Kart {
     bus.emit('kart:boost', { kart: this, source: 'star', seconds: this.starTimer, strength: 1 });
   }
 
+  startShield(seconds = 8) {
+    this.shieldTimer = Math.max(this.shieldTimer, seconds);
+    this.shieldVisual.visible = true;
+    bus.emit('kart:shield', { kart: this, seconds });
+  }
+
   /** kind: 'spin' | 'tumble' | 'shrink' | 'squash'. Returns true if the hit took effect. */
   applyHit(kind = 'spin') {
     if (this.starTimer > 0) return false;
+    if (this.shieldTimer > 0) {
+      this.shieldTimer = 0;
+      this.shieldVisual.visible = false;
+      bus.emit('kart:shieldBlock', { kart: this, kind });
+      return false;
+    }
     if (kind === 'shrink') {
       const wasShrunk = this.shrinkTimer > 0;
       this.shrinkTimer = PHYSICS.lightningShrinkTime;
@@ -268,6 +288,8 @@ export class Kart {
     if (this.invulnTimer > 0) return false;
     this._cancelDrift(false);
     this.boostTimer = 0;
+    this.shieldTimer = 0;
+    this.shieldVisual.visible = false;
     this._trick = false;
     if (kind === 'tumble') {
       this._startSpin('tumble', PHYSICS.tumbleTime, 0.12);
@@ -326,6 +348,8 @@ export class Kart {
     this.stallTimer = 0;
     this.boostTimer = 0;
     this.respawnTimer = RESPAWN_HANG;
+    this.shieldTimer = 0;
+    this.shieldVisual.visible = false;
     this.respawnInvuln = RESPAWN_INVULN;
     this.invulnTimer = Math.max(this.invulnTimer, RESPAWN_INVULN);
     this.trackT = tt;
@@ -428,6 +452,8 @@ export class Kart {
     // --- timers
     if (this.boostTimer > 0) this.boostTimer = Math.max(0, this.boostTimer - dt);
     if (this.starTimer > 0) this.starTimer = Math.max(0, this.starTimer - dt);
+    if (this.shieldTimer > 0) this.shieldTimer = Math.max(0, this.shieldTimer - dt);
+    this.shieldVisual.visible = this.shieldTimer > 0;
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     if (this.respawnInvuln > 0) this.respawnInvuln = Math.max(0, this.respawnInvuln - dt);
     if (this.stallTimer > 0) this.stallTimer = Math.max(0, this.stallTimer - dt);
@@ -840,6 +866,8 @@ export class Kart {
     for (const u of this._unsubs) { try { u(); } catch { /* ignore */ } }
     this._unsubs.length = 0;
     this.object3D.parent?.remove(this.object3D);
+    this.shieldVisual.geometry.dispose();
+    this.shieldVisual.material.dispose();
     try { this.model?.dispose?.(); } catch { /* ignore */ }
     this.model = null;
   }

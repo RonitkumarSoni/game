@@ -165,6 +165,7 @@ export class AudioEngine {
     on('kart:miniTurbo', (d) => { if (isP(d.kart)) this.whoosh(0.3 + 0.15 * (d.level || 1), 1 + 0.2 * (d.level || 1)); });
     on('kart:boost', (d) => { if (isP(d.kart) && d.source !== 'miniTurbo') this.whoosh(0.6, 1); });
     on('kart:hit', (d) => { if (isP(d.kart)) this.hitSound(d.kind); else this.atPos(d.kart && d.kart.position, 0.5, (g) => this.hitSound(d.kind, g)); });
+    on('kart:shieldBlock', (d) => { if (isP(d.kart)) this.beep(980, 0.18, 'sine', 0.14); });
     on('kart:wallBump', (d) => { if (isP(d.kart)) this.thud(clamp(d.intensity ?? 0.5, 0.1, 1)); });
     on('kart:bump', (d) => { if (isP(d.a) || isP(d.b)) this.thud(clamp((d.intensity ?? 0.5) * 0.7, 0.1, 0.8), 180); });
     on('kart:jump', (d) => { if (isP(d.kart)) this.boing(); });

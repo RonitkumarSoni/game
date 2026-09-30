@@ -51,7 +51,7 @@ export const VEHICLES = [
   { id: 'vector', name: 'Vector RS', role: 'TECHNICAL', stats: { speed: 2, accel: 4, handling: 4, weight: 2 } },
 ];
 
-export const ITEMS = ['mushroom', 'triple_mushroom', 'banana', 'green_shell', 'red_shell', 'star', 'lightning', 'blue_shell'];
+export const ITEMS = ['mushroom', 'triple_mushroom', 'banana', 'green_shell', 'red_shell', 'star', 'lightning', 'blue_shell', 'phase_shield', 'shockwave'];
 
 // Legacy simulation ids stay stable during migration; all player-facing copy uses the original NRR names.
 export const ABILITY_LABELS = {
@@ -63,6 +63,8 @@ export const ABILITY_LABELS = {
   star: 'Overdrive Core',
   lightning: 'EMP Storm',
   blue_shell: 'Hunter Drone',
+  phase_shield: 'Phase Shield',
+  shockwave: 'Shockwave Pulse',
 };
 
 export const DIFFICULTY = {

@@ -161,6 +161,21 @@ function drawItem(g, type) {
       g.closePath(); g.fill(); g.stroke();
       break;
     }
+    case 'phase_shield': {
+      g.fillStyle = '#55d9ff'; g.strokeStyle = '#e6fbff'; g.lineWidth = 6;
+      g.beginPath(); g.moveTo(64, 12); g.lineTo(108, 30); g.lineTo(100, 82);
+      g.quadraticCurveTo(86, 106, 64, 119); g.quadraticCurveTo(42, 106, 28, 82);
+      g.lineTo(20, 30); g.closePath(); g.fill(); g.stroke();
+      g.strokeStyle = '#146499'; g.lineWidth = 5;
+      g.beginPath(); g.moveTo(64, 30); g.lineTo(64, 97); g.stroke();
+      break;
+    }
+    case 'shockwave': {
+      g.strokeStyle = '#ad7cff'; g.lineWidth = 10;
+      for (const r of [16, 34, 50]) { g.beginPath(); g.arc(64, 64, r, 0, Math.PI * 2); g.stroke(); }
+      g.fillStyle = '#f5dbff'; g.beginPath(); g.arc(64, 64, 12, 0, Math.PI * 2); g.fill();
+      break;
+    }
     default: {
       g.fillStyle = '#fff'; g.font = 'bold 80px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText('?', 64, 68);

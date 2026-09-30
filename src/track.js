@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bus } from './events.js';
 import * as TX from './track-textures.js';
 import { createEnvironment } from './environment.js';
-import { selectTrack, EMBER_CONTROL_POINTS } from './track-data.js';
+import { selectTrack, EMBER_CONTROL_POINTS, SKYFORGE_CONTROL_POINTS, CHROMEWAVE_CONTROL_POINTS } from './track-data.js';
 
 const SCALE = 1.15;
 const N = 2000;                 // centerline samples
@@ -68,7 +68,11 @@ function smoothCircular(arr, radius, passes = 1) {
 export function createTrack(scene, renderer, trackId = 'nova-harbor') {
   const definition = selectTrack(trackId);
   const ember = definition.theme === 'ember';
-  const controlPoints = ember ? EMBER_CONTROL_POINTS : CP;
+  const controlPoints = ({
+    ember: EMBER_CONTROL_POINTS,
+    skyforge: SKYFORGE_CONTROL_POINTS,
+    chromewave: CHROMEWAVE_CONTROL_POINTS,
+  })[definition.theme] || CP;
   const root = new THREE.Group();
   root.name = 'track';
   scene.add(root);
@@ -426,10 +430,11 @@ export function createTrack(scene, renderer, trackId = 'nova-harbor') {
   // ------------------------------------------------------------------ road surface
   const asphaltTex = TX.makeAsphaltTexture();
   const roadMat = mat(new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.88, metalness: 0.0 }));
+  if (definition.theme === 'skyforge') roadMat.color.setHex(0xb9d3ed);
   addMesh(extrude(0, N, () => [[-HALF_W, 0], [0, 0], [HALF_W, 0]], { across: [0, 0.5, 1], alongScale: 22, step: 1 }), roadMat, { name: 'road' });
 
   // Curbs through corners (raised red/white rumble strips)
-  const curbMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeCurbTexture(), roughness: 0.6 }));
+  const curbMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeCurbTexture(definition.theme === 'skyforge'), roughness: 0.6 }));
   const curbMask = new Uint8Array(N);
   for (let i = 0; i < N; i++) if (Math.abs(kS[i]) > 1 / 240 && bridge[i] < 0.2) {
     for (let k = -30; k <= 30; k++) curbMask[(i + k + N) % N] = 1;
@@ -444,8 +449,10 @@ export function createTrack(scene, renderer, trackId = 'nova-harbor') {
   curbGeos.forEach((g) => g.dispose());
 
   // Offroad bands (grass) + bridge deck edge (concrete)
-  const grassMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeGrassTexture(), roughness: 1 }));
+  const grassMat = mat(new THREE.MeshStandardMaterial({ map: definition.theme === 'skyforge' ? TX.makeSnowTexture() : TX.makeGrassTexture(), roughness: 1 }));
   if (ember) grassMat.color.setHex(0x62434c);
+  if (definition.theme === 'skyforge') grassMat.color.setHex(0xffffff);
+  if (definition.theme === 'chromewave') grassMat.color.setHex(0x68619a);
   grassMat.map.repeat.set(1, 1);
   const concreteMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeConcreteTexture(), roughness: 0.9 }));
   const bandGeos = [], deckGeos = [];
@@ -483,6 +490,7 @@ export function createTrack(scene, renderer, trackId = 'nova-harbor') {
   const wallTex = TX.makeBarrierTexture();
   const wallMat = mat(new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.55 }));
   const wallTopMat = mat(new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 }));
+  if (definition.theme === 'skyforge') wallTopMat.color.setHex(0x87dbf4);
   const railMat = mat(new THREE.MeshStandardMaterial({ map: TX.makeRailTexture(), roughness: 0.45 }));
   const WALL_H = 1.25, WALL_T = 0.7, TEX_LEN = 9.6;
   const vMap = (y) => (y + 0.05) / (WALL_H + 0.05);
@@ -714,6 +722,7 @@ export function createTrack(scene, renderer, trackId = 'nova-harbor') {
   Object.assign(track, {
     id: definition.id,
     name: definition.name,
+    theme: definition.theme,
     curve,
     length,
     roadWidth: HALF_W * 2,

@@ -269,7 +269,11 @@ export class InputController {
   }
   setSteeringSensitivity(value) { this.steeringSensitivity = Math.max(.6, Math.min(1.4, Number(value) || 1)); }
   setGamepadDeadzone(value) { this.gamepadDeadzone = Math.max(.05, Math.min(.35, Number(value) || STICK_DEADZONE)); }
-  setTouchLayout(layout) { this.touchRoot?.classList.toggle('left-steering', layout === 'left'); }
+  setTouchLayout(layout) {
+    const leftSteering = layout === 'left';
+    this.touchRoot?.classList.toggle('left-steering', leftSteering);
+    document.body?.classList.toggle('left-touch-steering', leftSteering);
+  }
   setAutoAccelerate(enabled) {
     this.autoAccelerate = !!enabled;
     this.touchRoot?.classList.toggle('auto-accelerate', this.autoAccelerate);
