@@ -81,8 +81,6 @@ public/            public application assets
 
 ## Documentation
 
-- [Product requirements](PRD.md)
-- [Technical requirements](REQUIREMENTS.md)
 - [Improvement roadmap](docs/IMPROVEMENT_ROADMAP.md)
 - [Touch controls plan](docs/TOUCH_CONTROLS_PLAN.md)
 - [Animation and audio specification](docs/ANIMATION_AUDIO_SPEC.md)
