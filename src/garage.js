@@ -17,7 +17,8 @@ export function garageXp(profile) {
     (stats.trialRuns || 0) * 30 +
     (stats.cupWins || 0) * 150 +
     (stats.eliminationWins || 0) * 100 +
-    (stats.checkpointClears || 0) * 80,
+    (stats.checkpointClears || 0) * 80 +
+    (stats.onlineXp || 0),
   );
 }
 

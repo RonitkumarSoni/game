@@ -23,9 +23,9 @@ const ALLOWED_TITLES = new Set(['ROOKIE RACER', ...Object.values(ACHIEVEMENTS).m
 export function newProfile() {
   return {
     version: PROFILE_VERSION,
-    stats: { races: 0, wins: 0, podiums: 0, trialRuns: 0, cupEntries: 0, cupWins: 0, eliminationRuns: 0, eliminationWins: 0, checkpointRuns: 0, checkpointClears: 0, totalLaps: 0, totalRaceTime: 0, bestFinish: null },
+    stats: { races: 0, wins: 0, podiums: 0, onlineRaces: 0, onlineWins: 0, onlinePodiums: 0, onlineXp: 0, trialRuns: 0, cupEntries: 0, cupWins: 0, eliminationRuns: 0, eliminationWins: 0, checkpointRuns: 0, checkpointClears: 0, totalLaps: 0, totalRaceTime: 0, bestFinish: null },
     medals: { gold: 0, silver: 0, bronze: 0 },
-    achievements: [], titles: ['ROOKIE RACER'], selectedTitle: 'ROOKIE RACER', careerMedals: {}, history: [], completedCupSeeds: [],
+    achievements: [], titles: ['ROOKIE RACER'], selectedTitle: 'ROOKIE RACER', careerMedals: {}, history: [], completedCupSeeds: [], completedOnlineRaces: [],
   };
 }
 
@@ -46,6 +46,7 @@ export function migrateProfile(value) {
   for (const event of CAREER_EVENTS) if (value.careerMedals?.[event.id] === event.medal) base.careerMedals[event.id] = event.medal;
   base.history = Array.isArray(value.history) ? value.history.filter((row) => row && typeof row === 'object').slice(0, 20) : [];
   base.completedCupSeeds = idList(value.completedCupSeeds).slice(0, 20);
+  base.completedOnlineRaces = idList(value.completedOnlineRaces).slice(0, 30);
   return base;
 }
 
@@ -101,6 +102,20 @@ export function recordRace(profile, { mode = 'race', place, time, laps, pilot, t
   if (p.stats.races >= 10) unlock(p, 'tenRaces', rewards);
   rewards.push(...claimCareer(p));
   return { profile: p, rewards };
+}
+
+// Private online results are separate from solo Career mission counters.
+export function recordOnlineRace(profile, { place, time, xp, pilot, track, matchId } = {}) {
+  const p = migrateProfile(profile);
+  if (matchId && p.completedOnlineRaces.includes(matchId)) return { profile: p, rewards: [] };
+  if (!Number.isInteger(place) || place < 1 || place > 4 || !Number.isFinite(time) || time <= 0 || !Number.isFinite(xp) || xp < 0 || xp > 175) return { profile: p, rewards: [] };
+  p.stats.onlineRaces++;
+  p.stats.onlineWins += place === 1 ? 1 : 0;
+  p.stats.onlinePodiums += place <= 3 ? 1 : 0;
+  p.stats.onlineXp += xp;
+  if (matchId) p.completedOnlineRaces = [String(matchId), ...p.completedOnlineRaces].slice(0, 30);
+  addHistory(p, { type: 'ONLINE RACE', pilot: String(pilot || ''), track: String(track || ''), place, time, at: Date.now() });
+  return { profile: p, rewards: [`+${xp} XP · ONLINE RACE`] };
 }
 
 export function recordTrial(profile, { time, pilot, track, newBest = false } = {}) {

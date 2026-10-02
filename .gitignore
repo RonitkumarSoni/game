@@ -1,5 +1,8 @@
 .DS_Store
 node_modules/
 dist/
+.npm-cache/
+.local-config/
+.wrangler/
 .playwright-mcp/
 *.log

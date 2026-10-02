@@ -9,6 +9,16 @@ export function selectTrack(id) {
   return TRACKS.find((track) => track.id === id) || TRACKS[0];
 }
 
+// Shared by the rendered circuit and the authoritative online race simulation.
+export const NOVA_CONTROL_POINTS = [
+  [0, 0, -60], [0, 0, 60], [2, 0, 175], [22, 1, 258],
+  [80, 3, 302], [160, 5, 296], [230, 6, 252], [262, 6, 182],
+  [238, 5, 118], [292, 4, 64], [258, 4, 4], [296, 6, -62],
+  [304, 10, -140], [284, 10, -212], [226, 6, -262], [150, 3, -284],
+  [66, 1, -300], [-20, 0, -318], [-96, 0, -322], [-128, 0, -292],
+  [-106, 0, -256], [-50, 0, -236], [-8, 0, -196], [0, 0, -140],
+];
+
 // Both circuits begin on the same grid orientation. Subsequent control points
 // deliberately diverge so lap projection, AI lines and the minimap remain real.
 export const EMBER_CONTROL_POINTS = [

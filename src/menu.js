@@ -135,10 +135,12 @@ export class Menu {
         <span>© 2026 Neon Rift Racers · Break the track. Rule the rift.</span>
         <span class="kc">M</span> mute
       </div>
+      <button class="title-online" type="button">PLAY WITH FRIENDS</button>
       <button class="title-career" type="button">CAREER</button>
       <button class="title-profile" type="button">PROFILE</button>
       <button class="title-settings" type="button">SETTINGS</button>`;
     t.querySelector('.title-settings').addEventListener('click', (e) => { e.stopPropagation(); this.showSettings('title'); });
+    t.querySelector('.title-online').addEventListener('click', (e) => { e.stopPropagation(); this.h.onOnline?.(); });
     t.querySelector('.title-profile').addEventListener('click', (e) => { e.stopPropagation(); this.showProfile(this.h.getProfile?.()); });
     t.querySelector('.title-career').addEventListener('click', (e) => { e.stopPropagation(); this.showCareer(this.h.getProfile?.()); });
     t.addEventListener('click', () => { if (this.screen === 'title') this._toSelect(); });
@@ -432,7 +434,7 @@ export class Menu {
     const stats = this.profileEl.querySelector('.profile-stats');
     stats.textContent = '';
     const fields = [
-      ['RACES', profile.stats.races], ['WINS', profile.stats.wins], ['PODIUMS', profile.stats.podiums],
+      ['RACES', profile.stats.races + profile.stats.onlineRaces], ['WINS', profile.stats.wins + profile.stats.onlineWins], ['PODIUMS', profile.stats.podiums + profile.stats.onlinePodiums],
       ['TRIAL RUNS', profile.stats.trialRuns], ['CUPS', profile.stats.cupEntries], ['CUP WINS', profile.stats.cupWins],
       ['SURVIVAL WINS', profile.stats.eliminationWins], ['RUSH CLEARS', profile.stats.checkpointClears],
       ['GOLD', profile.medals.gold], ['SILVER', profile.medals.silver], ['BRONZE', profile.medals.bronze],
@@ -768,6 +770,7 @@ export class Menu {
 
   // ------------------------------------------------------------------ input
   _key(e) {
+    if (!this.uiRoot.querySelector('.online-screen')?.hidden) return;
     const c = e.code;
     const isEnter = c === 'Enter' || c === 'NumpadEnter' || c === 'Space';
     if (this.screen === 'title') {

@@ -5,40 +5,15 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bus } from './events.js';
 import * as TX from './track-textures.js';
 import { createEnvironment } from './environment.js';
-import { selectTrack, EMBER_CONTROL_POINTS, SKYFORGE_CONTROL_POINTS, CHROMEWAVE_CONTROL_POINTS } from './track-data.js';
+import { selectTrack, NOVA_CONTROL_POINTS, EMBER_CONTROL_POINTS, SKYFORGE_CONTROL_POINTS, CHROMEWAVE_CONTROL_POINTS } from './track-data.js';
 
 const SCALE = 1.15;
 const N = 2000;                 // centerline samples
 const HALF_W = 12;              // road half width (roadWidth = 24)
 const GRID_CELL = 40;
 
-// Control points [x, y, z] (x/z scaled by SCALE). Race direction = list order. CP0 = start/finish line.
-const CP = [
-  [0, 0, -60],      // 0  start / finish (main straight, heading +Z)
-  [0, 0, 60],       // 1
-  [2, 0, 175],      // 2
-  [22, 1, 258],     // 3  big sweeping left
-  [80, 3, 302],     // 4
-  [160, 5, 296],    // 5
-  [230, 6, 252],    // 6  sweeping right
-  [262, 6, 182],    // 7
-  [238, 5, 118],    // 8  S-bend
-  [292, 4, 64],     // 9
-  [258, 4, 4],      // 10
-  [296, 6, -62],    // 11 climb to the bridge
-  [304, 10, -140],  // 12 bridge over the lagoon
-  [284, 10, -212],  // 13
-  [226, 6, -262],   // 14 downhill jump
-  [150, 3, -284],   // 15
-  [66, 1, -300],    // 16
-  [-20, 0, -318],   // 17 into the hairpin
-  [-96, 0, -322],   // 18
-  [-128, 0, -292],  // 19 hairpin apex
-  [-106, 0, -256],  // 20
-  [-50, 0, -236],   // 21
-  [-8, 0, -196],    // 22
-  [0, 0, -140],     // 23
-];
+// Control points [x, y, z] (x/z scaled by SCALE). Race direction = list order.
+const CP = NOVA_CONTROL_POINTS;
 
 // Lagoon crossed by the bridge (world coords). Shared with environment.
 const LAKE = { x: 405, z: -205, r: 125 };

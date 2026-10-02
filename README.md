@@ -21,6 +21,7 @@ Race through Nova Harbor, Ember Rift, Skyforge Circuit, and Chromewave City with
 - Elimination survival races and timed Checkpoint Rush with ordered gates
 - Four selectable circuits, each with its own route and atmosphere
 - Local racer profile with race history, achievements, medals, earned titles, and starter career missions
+- Private 2–4 player rooms with invite links, ready-up, server-owned race positions, and online XP
 
 ## Controls
 
@@ -49,6 +50,17 @@ cd game
 npm install
 npm run dev
 ```
+
+To test private multiplayer locally, build the game and run the Cloudflare Worker emulator in a second terminal:
+
+```bash
+npm run build
+npm run dev:server
+```
+
+Open `http://localhost:8787`, choose **Play with Friends**, create a room, and share its invite link. Use another browser profile or device for the second guest. The host selects a track and laps; everyone must ready up before the host starts. Online rooms require the Cloudflare Worker and Durable Object configuration in `wrangler.jsonc` when deployed. The ordinary Vite dev server at port 3000 also needs the Worker emulator at port 8787 for `/api` and WebSocket proxying.
+
+Career missions remain solo. Online finish XP contributes to each browser's local garage level and kart unlocks, but this guest-profile MVP has no login, cross-device synchronization, or tamper-resistant account progression.
 
 Production verification:
 

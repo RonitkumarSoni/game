@@ -17,8 +17,10 @@ import { lapRecordKey, trialRecordKey, readBestLap, saveBestLap } from './lap-re
 import { GhostRecorder, ghostKey, readGhost, saveGhost, ghostDelta } from './ghost.js';
 import { GhostVisual } from './ghost-visual.js';
 import { GrandPrix, GRAND_PRIX_ROUNDS } from './grand-prix.js';
-import { loadProfile, saveProfile, recordRace, recordTrial, recordCup, recordArcade, equipTitle } from './profile.js';
+import { loadProfile, saveProfile, recordRace, recordTrial, recordCup, recordArcade, recordOnlineRace, equipTitle } from './profile.js';
 import { ArcadeMode } from './arcade-modes.js';
+import { OnlineClient } from './online-client.js';
+import { advanceOnlineMotion, makeOnlineTrack } from './online-sim.js';
 
 // ---------------------------------------------------------------------------------------------
 // Error isolation: one failing subsystem must never freeze the loop. Log once per error type.
@@ -155,6 +157,7 @@ const hud = new HUD(uiRoot);
 const tutorial = new TutorialCoach(uiRoot);
 const profileLoad = loadProfile();
 let profile = profileLoad.profile;
+let online;
 const menu = new Menu(uiRoot, {
   onStart: (settings) => startRace(settings),
   onResume: () => resume(),
@@ -163,7 +166,15 @@ const menu = new Menu(uiRoot, {
   onSettings: (settings) => applySettings(settings),
   getProfile: () => profile,
   onEquipTitle: (title) => { profile = equipTitle(profile, title); saveProfile(profile); },
+  onOnline: () => online.open(),
   onScreen: (s) => { setState(s === 'select' || s === 'garage' ? 'select' : 'title'); },
+});
+online = new OnlineClient(uiRoot, {
+  getProfile: () => profile,
+  onStart: (snapshot) => startOnlineRace(snapshot),
+  onSnapshot: (snapshot) => updateOnlineRace(snapshot),
+  onResults: (results) => finishOnlineRace(results),
+  onLeave: () => goToTitle(),
 });
 let input = null;
 
@@ -234,7 +245,7 @@ function setState(s) {
 }
 
 const RACE_STATES = new Set(['intro', 'countdown', 'racing', 'finished']);
-const PLAYABLE_MODES = new Set(['race', 'time-trial', 'grand-prix', 'elimination', 'checkpoint-rush']);
+const PLAYABLE_MODES = new Set(['race', 'time-trial', 'grand-prix', 'elimination', 'checkpoint-rush', 'online']);
 
 // ---------------------------------------------------------------------------------------------
 // World lifecycle
@@ -435,6 +446,92 @@ function startRace(settings, { continuation = false, retry = false } = {}) {
   }, 3900);
 }
 
+function startOnlineRace(snapshot) {
+  try {
+    hud.hide(); hud.hideResults(); menu.hideAll(); tutorial.hide();
+    audio.stopMusic(); audio.setPaused(false);
+    const reuse = disposeWorld({ keepTrack: world?.track?.id === snapshot.trackId });
+    const w = { mode: 'online', scene: reuse?.scene || new THREE.Scene(), track: null, karts: [], ais: [], player: null, playerAI: null, onlineTargets: new Map() };
+    w.track = reuse?.track || mods.track.createTrack(w.scene, renderer, snapshot.trackId);
+    w.onlineTrack = makeOnlineTrack(snapshot.trackId);
+    for (const [index, row] of snapshot.players.entries()) {
+      const character = CHARACTERS.find((entry) => entry.id === row.pilotId) || CHARACTERS[0];
+      const vehicle = VEHICLES.find((entry) => entry.id === row.vehicleId) || VEHICLES[0];
+      const kart = new mods.kart.Kart({ scene: w.scene, track: w.track, character, vehicle, isPlayer: row.id === online.id, index, model: makeKartModel(character, vehicle) });
+      kart.onlineId = row.id;
+      kart.position.set(row.x, row.y, row.z);
+      kart.heading = row.heading;
+      kart.speed = row.speed;
+      w.karts.push(kart);
+      if (kart.isPlayer) w.player = kart;
+    }
+    if (!w.player) throw new Error('Your racer was not found in the room');
+    w.race = { phase: snapshot.phase, raceTime: snapshot.elapsed, laps: snapshot.laps, standings: w.karts, countdownValue: 3, announcedCountdown: null, wrongWay: false };
+    w.ctx = { karts: w.karts, player: w.player, itemSystem: null, riftEvents: null, time: 0 };
+    w.chase = (mods.camera?.ChaseCamera && safe('online.camera', () => new mods.camera.ChaseCamera(camera))) || new FallbackCamera(camera);
+    w.chase.shakeEnabled = menu.userSettings.cameraShake !== false && menu.userSettings.reducedMotion !== true;
+    if (['chase', 'hood', 'wide'].includes(menu.userSettings.cameraView)) w.chase.viewMode = menu.userSettings.cameraView;
+    if (mods.effects?.Effects) w.effects = safe('online.effects', () => new mods.effects.Effects(w.scene, camera, w.track.theme));
+    w.chase.snap(w.player);
+    world = w;
+    renderPass.scene = w.scene;
+    resultsShown = false;
+    hud.reset({ player: w.player, track: w.track, laps: snapshot.laps, mode: 'race' });
+    hud.show();
+    uiRoot.classList.remove('no-world');
+    audio.setGameplayActive(true);
+    setState(snapshot.phase === 'racing' ? 'racing' : 'countdown');
+    updateOnlineRace(snapshot);
+  } catch (error) {
+    report('online.start', error);
+    hud.toast('ONLINE RACE FAILED TO LOAD');
+    online.close();
+  }
+}
+
+function updateOnlineRace(snapshot) {
+  const w = world;
+  if (!w || w.mode !== 'online') return;
+  w.race.phase = snapshot.phase;
+  w.race.raceTime = snapshot.elapsed;
+  w.race.laps = snapshot.laps;
+  w.race.startsAt = snapshot.startsAt;
+  for (const row of snapshot.players) {
+    const kart = w.karts.find((entry) => entry.onlineId === row.id);
+    if (!kart) continue;
+    w.onlineTargets.set(row.id, { ...row, receivedAt: performance.now() });
+    kart.speed = row.speed;
+    kart.lap = row.lap;
+    kart.place = row.place;
+    if (kart.isPlayer && row.finished && row.finishTime != null && !kart.finished) {
+      hud.banner(row.place === 1 ? 'YOU WIN!' : `FINISHED · ${row.place}${row.place === 2 ? 'ND' : row.place === 3 ? 'RD' : 'TH'}`);
+      hud.toast('Waiting for other racers · results within 30 seconds');
+      online.showFinish(row);
+      setState('finished');
+    }
+    kart.finished = row.finished;
+    kart.finishTime = row.finishTime;
+    kart.trackT = row.t;
+    kart.raceProgress = (row.lap - 1) + row.t;
+  }
+  w.race.standings = [...w.karts].sort((a, b) => a.place - b.place);
+  if (snapshot.phase === 'racing' && state === 'countdown') bus.emit('race:go', {});
+  if (snapshot.phase === 'done') setState('finished');
+}
+
+function finishOnlineRace(results) {
+  if (resultsShown) return;
+  resultsShown = true;
+  const own = results.rows.find((row) => row.id === online.id);
+  if (own?.finished) {
+    const result = recordOnlineRace(profile, { place: own.place, time: own.time, xp: own.xp, pilot: own.pilotId, track: results.trackName, matchId: results.matchId });
+    profile = result.profile;
+    saveProfile(profile);
+    for (const reward of result.rewards) hud.toast(reward);
+  }
+  setState('finished');
+}
+
 let introCard = null;
 function showIntroCard() {
   if (!introCard) introCard = Object.assign(document.createElement('div'), { className: 'intro-card' });
@@ -457,7 +554,7 @@ function beginCountdown() {
 }
 
 function pause() {
-  if (!RACE_STATES.has(state) || resultsShown) return;
+  if (!RACE_STATES.has(state) || resultsShown || world?.mode === 'online') return;
   prevState = state;
   setState('paused');
   menu.showPause();
@@ -556,6 +653,7 @@ bus.on('race:end', (d) => {
 // Keyboard (global)
 // ---------------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
+  if (!online.root.hidden) return;
   if (e.code === 'KeyG' && !e.repeat && state === 'racing' && world?.mode === 'time-trial') {
     e.preventDefault();
     if (world.ghostVisual) {
@@ -566,6 +664,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyR' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey &&
+      world?.mode !== 'online' &&
       (RACE_STATES.has(state) || state === 'paused' || state === 'finished') && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
     e.preventDefault();
     startRace(lastSettings, { continuation: true, retry: true });
@@ -683,6 +782,74 @@ const performanceGuard = {
 function simulate(w, dt) {
   time += dt;
   w.ctx.time = time;
+  if (w.mode === 'online') {
+    let raw = input && safe('online.input', () => input.getInput());
+    if (input) safe('online.pause', () => input.consumePressed?.('pause'));
+    if (input?.consumePressed?.('cameraView')) {
+      const view = w.chase?.cycleView?.();
+      if (view) input.setCameraView?.(view);
+    }
+    playerInput = raw || NEUTRAL;
+    online.sendInput(playerInput);
+    if (w.race.phase === 'countdown') {
+      w.race.countdownValue = Math.max(1, Math.ceil((w.race.startsAt - Date.now()) / 1000));
+      if (w.race.countdownValue <= 3 && w.race.announcedCountdown !== w.race.countdownValue) {
+        w.race.announcedCountdown = w.race.countdownValue;
+        bus.emit('race:countdown', { n: w.race.countdownValue });
+      }
+    }
+    for (const kart of w.karts) {
+      const target = w.onlineTargets.get(kart.onlineId);
+      if (!target) continue;
+      const alpha = 1 - Math.exp(-dt * 13);
+      const lead = target.finished || w.race.phase !== 'racing' ? 0 : Math.min(0.1, (performance.now() - target.receivedAt) / 1000);
+      if (kart.isPlayer && !target.finished && w.race.phase === 'racing') {
+        const predicted = kart.onlinePredicted ||= { ...target };
+        advanceOnlineMotion(predicted, playerInput, dt, w.onlineTrack);
+        const serverX = target.x + Math.sin(target.heading) * target.speed * lead;
+        const serverZ = target.z + Math.cos(target.heading) * target.speed * lead;
+        const error = Math.hypot(serverX - predicted.x, serverZ - predicted.z);
+        const correction = error > 12 ? 1 : 1 - Math.exp(-dt * 4);
+        predicted.x += (serverX - predicted.x) * correction;
+        predicted.z += (serverZ - predicted.z) * correction;
+        predicted.speed += (target.speed - predicted.speed) * correction;
+        predicted.heading += Math.atan2(Math.sin(target.heading - predicted.heading), Math.cos(target.heading - predicted.heading)) * correction;
+        kart.position.x = predicted.x;
+        kart.position.z = predicted.z;
+        kart.heading = predicted.heading;
+        kart.speed = predicted.speed;
+      } else {
+        kart.onlinePredicted = null;
+        kart.position.lerp(new THREE.Vector3(target.x + Math.sin(target.heading) * target.speed * lead, kart.position.y, target.z + Math.cos(target.heading) * target.speed * lead), alpha);
+        kart.heading += Math.atan2(Math.sin(target.heading - kart.heading), Math.cos(target.heading - kart.heading)) * alpha;
+      }
+      const surface = w.track.getSurfaceInfo(kart.position, target.t);
+      if (surface && Number.isFinite(surface.height)) {
+        const previousHeight = kart.position.y;
+        if (surface.height >= previousHeight - 0.12) {
+          kart.position.y = surface.height;
+          kart.onlineVerticalSpeed = Math.max(0, (surface.height - previousHeight) / dt);
+          kart.airborne = false;
+        } else {
+          kart.onlineVerticalSpeed = (kart.onlineVerticalSpeed || 0) - 24 * dt;
+          kart.position.y = Math.max(surface.height, previousHeight + kart.onlineVerticalSpeed * dt);
+          kart.airborne = kart.position.y > surface.height + 0.02;
+        }
+        kart.groundHeight = surface.height;
+        kart.groundNormal.copy(surface.normal);
+        const normal = surface.normal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -kart.heading);
+        kart.tiltGroup.quaternion.slerp(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal), alpha);
+        kart.surface = surface.surface;
+        kart.onRoad = surface.onRoad;
+      }
+      kart.time += dt;
+      kart.model?.animate?.({ dt, speed: kart.speed, steer: 0, drifting: false, driftDir: 0, driftLevel: 0, boosting: false, airborne: false, spin: 0, star: false, shrunk: false, throttle: kart.speed > 0 ? 1 : 0, time: kart.time });
+    }
+    if (w.effects) safe('online.effects.update', () => w.effects.update(dt, w.karts));
+    safe('online.track.update', () => w.track.update?.(dt, time));
+    if (w.track.setShadowFocus) safe('online.shadow', () => w.track.setShadowFocus(w.player.position));
+    return;
+  }
   const racing = PLAYABLE_MODES.has(w.mode);
   const player = w.player;
 
@@ -797,7 +964,7 @@ function frame() {
     // authoritative positions immediately after rendering; collisions and race
     // progress continue to use fixed-step simulation coordinates.
     const renderAlpha = running ? Math.min(simAccumulator / SIM_STEP, 1) : 0;
-    if (renderAlpha > 0 && running) {
+    if (renderAlpha > 0 && running && w.mode !== 'online') {
       for (const kart of w.karts) {
         if (kart.eliminated || !kart.velocity || !kart.position) continue;
         const vx = kart.velocity.x * renderAlpha * SIM_STEP;
@@ -859,6 +1026,8 @@ async function boot() {
   if (profileLoad.status === 'recovered') hud.toast('PROFILE RECOVERED · ORIGINAL BACKUP SAVED');
   setState('title');
   audio.playMusic('menu');
+  const invite = new URLSearchParams(location.search).get('room');
+  if (invite) online.open(invite);
 }
 boot();
 
